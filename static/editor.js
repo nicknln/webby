@@ -1,0 +1,1017 @@
+/* The gaff editor – the post itself is the editor.
+   Fixed parts are drawn for you; dashed boxes are where you type or paste.
+   Uses md.js (htmlToMd / mdToHtml) and the same server API as the form view. */
+'use strict';
+
+let META = null;
+let ed = null;            // edition being edited (same JSON shape the server and form view use)
+let active = 'header';    // current step: a section key or 'review'
+let lastRender = null;    // last /api/render result (markdown parts + warnings)
+const attempted = {};     // sections where "Mark done" was pressed (show missing-field hints)
+let EDIT = false;         // whether the section being drawn is editable (captured by each slot)
+
+const STEPS = [
+  { key: 'header', label: 'Header' },
+  { key: 'happenings', label: 'Happenings', title: 'giffgaff Happenings', toggle: true, list: 'stories', item: 'story' },
+  { key: 'say_hello', label: 'Say Hello', title: 'Say Hello!', toggle: true, list: 'members', item: 'new member' },
+  { key: 'giffgaffiversary', label: 'giffgaffiversary', title: 'Happy giffgaffiversary!', toggle: true, list: 'posts', item: 'anniversary' },
+  { key: 'photo_of_the_week', label: 'Photo of the Week', title: 'Photo Of The Week', toggle: true },
+  { key: 'extras', label: 'Extras' },
+];
+const STEP_BY = Object.fromEntries(STEPS.map(s => [s.key, s]));
+
+/* ------------------------------------------------------------------ */
+/* Helpers                                                             */
+/* ------------------------------------------------------------------ */
+
+const $ = s => document.querySelector(s);
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+function el(tag, props = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (v === undefined || v === null || v === false) continue;
+    if (k === 'class') n.className = v;
+    else if (k === 'html') n.innerHTML = v;
+    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v === true ? '' : v);
+  }
+  n.append(...kids.flat().filter(k => k !== null && k !== undefined && k !== false));
+  return n;
+}
+
+function getPath(obj, path) { return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj); }
+function setPath(obj, path, value) {
+  const keys = path.split('.');
+  let o = obj;
+  keys.slice(0, -1).forEach((k, i) => {
+    if (o[k] == null) o[k] = /^\d+$/.test(keys[i + 1]) ? [] : {};
+    o = o[k];
+  });
+  o[keys.at(-1)] = value;
+}
+function hasContent(v) {
+  if (typeof v === 'string') return v.trim() !== '';
+  if (typeof v === 'number') return false;
+  if (Array.isArray(v)) return v.some(hasContent);
+  if (v && typeof v === 'object') {
+    return Object.entries(v).some(([k, x]) => !k.startsWith('_') && k !== 'enabled' && k !== 'author' && k !== 'avatar' && hasContent(x));
+  }
+  return false;
+}
+
+// 'server' when app/server.py is running (drafts and builds go to project files);
+// 'browser' when it isn't, e.g. on GitHub Pages (everything stays in this browser).
+let MODE = 'server';
+
+async function detectMode() {
+  try {
+    const res = await fetch('/api/meta', { cache: 'no-store' });
+    if (res.ok && (res.headers.get('content-type') || '').includes('application/json')) return 'server';
+  } catch { /* no server */ }
+  return 'browser';
+}
+
+async function api(path, body) {
+  if (MODE === 'browser') return window.GaffStore.api(path, body);
+  const res = await fetch(path, body === undefined ? {} : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ edition: body }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.hidden = true), 4000);
+}
+
+async function copy(text, btn, msg = 'Copied') {
+  await navigator.clipboard.writeText(text);
+  if (!btn) return toast(msg);
+  const old = btn.textContent;
+  btn.textContent = msg;
+  setTimeout(() => (btn.textContent = old), 1500);
+}
+
+/* ------------------------------------------------------------------ */
+/* Lists typed one-per-line (buzzing links, comments, photo images)    */
+/* ------------------------------------------------------------------ */
+
+const LINES = {
+  links: {
+    parse(line) {
+      const s = line.replace(/^\s*[-*]\s+/, '').trim();
+      let m = s.match(/^\[(.+)\]\((\S+)\)$/);
+      if (m) return { title: m[1], link: m[2] };
+      m = s.match(/^(.+?)\s*\|\s*(https?:\/\/\S+)$/);
+      if (m) return { title: m[1], link: m[2] };
+      if (/^https?:\/\/\S+$/.test(s)) return { title: s, link: s };
+      return s ? { title: s } : null;
+    },
+    format: b => `- ${b.link ? `[${b.title || b.link}](${b.link})` : b.title || ''}`,
+  },
+  comments: {
+    parse(line) {
+      const s = line.replace(/^\s*[-*]\s+/, '').trim();
+      let m = s.match(/^[“"]?([\s\S]*?)[”"]?\s+[—–-]+\s*@([\w.-]+)\s*$/);
+      if (m) return { text: m[1].trim(), by: m[2] };
+      m = s.match(/^@([\w.-]+)\s*:\s*[“"]?([\s\S]*?)[”"]?$/);
+      if (m) return { text: m[2].trim(), by: m[1] };
+      return undefined;
+    },
+    format: c => `- “${c.text || ''}” — @${c.by || ''}`,
+  },
+  images: {
+    parse(line) {
+      const s = line.trim();
+      const m = s.match(/^!\[[^\]]*\]\((\S+?)(?:\s+"[^"]*")?\)$/);
+      if (m) return m[1];
+      return /^https?:\/\/\S+$/.test(s) ? s : undefined;
+    },
+    format: u => `![](${u})`,
+  },
+};
+
+function parseLines(kind, text) {
+  const items = [], bad = [];
+  text.split('\n').forEach((line, i) => {
+    if (!line.trim()) return;
+    const v = LINES[kind].parse(line);
+    if (v === undefined || v === null) bad.push(line.trim().slice(0, 40)); else items.push(v);
+  });
+  return { items, bad };
+}
+
+/* ------------------------------------------------------------------ */
+/* Steps, status and checks                                            */
+/* ------------------------------------------------------------------ */
+
+const isSkipped = k => !!STEP_BY[k]?.toggle && ed[k]?.enabled === false;
+
+function stepStatus(k) {
+  if (!ed._done?.[k]) return 'todo';
+  if (isSkipped(k)) return 'skipped';
+  return sectionProblems(k).length ? 'warn' : 'done';
+}
+const finished = k => ['done', 'skipped'].includes(stepStatus(k));
+const doneCount = () => STEPS.filter(s => finished(s.key)).length;
+const allDone = () => doneCount() === STEPS.length;
+const firstOpenStep = () => (STEPS.find(s => !finished(s.key)) || { key: 'review' }).key;
+
+function warningSection(w) {
+  const m = w.match(/^(\w+)[.[:]/);
+  if (m && STEP_BY[m[1]]) return m[1];
+  if (/^sections[.[]/.test(w)) return 'extras';
+  return 'header';
+}
+
+// "happenings.stories[2]: missing `title`" -> "happenings.stories.1.title"
+function warningPath(w) {
+  let m = w.match(/^(\w+)\.(\w+)\[(\d+)\]: missing `(\w+)`/);
+  if (m) return `${m[1]}.${m[2]}.${m[3] - 1}.${m[4]}`;
+  m = w.match(/^sections\[(\d+)\]: missing `(\w+)`/);
+  if (m) return `sections.${m[1] - 1}.${m[2]}`;
+  m = w.match(/^(\w+): missing `(\w+)`/);
+  if (m) return `${m[1]}.${m[2]}`;
+  return null;
+}
+
+const FIELD = { title: 'a title', link: 'a link', by: 'a username', text: 'the comment', photo_title: 'the photo’s title' };
+function friendly(w) {
+  const label = k => STEP_BY[k]?.label || k;
+  return w
+    .replace(/^(\w+)\.(\w+)\[(\d+)\]: missing `(\w+)`/, (_, s, l, n, f) => `${label(s)}: item ${n} needs ${FIELD[f] || f}`)
+    .replace(/^sections\[(\d+)\]: missing `(\w+)`/, (_, n, f) => `Extras: section ${n} needs ${FIELD[f] || f}`)
+    .replace(/^photo_of_the_week: missing `by`/, 'Photo of the Week: who took the photo?')
+    .replace(/^(\w+): missing `(\w+)`/, (_, s, f) => `${label(s)}: needs ${FIELD[f] || f}`)
+    .replace(/^sections\.(\d+): /, 'Extras (section $1): ')
+    .replace(/^(\w+): /, (m, s) => (STEP_BY[s] ? `${label(s)}: ` : m));
+}
+
+function sectionProblems(k) {
+  if (k === 'review' || isSkipped(k)) return [];
+  const probs = (lastRender?.warnings || []).filter(w => warningSection(w) === k).map(friendly);
+  if (k === 'header') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ed.date || '')) probs.push('Set the edition date');
+    if (!(ed.previous_edition || '').trim()) probs.push('Add last week’s thread link');
+  }
+  const s = STEP_BY[k];
+  if (s?.list && !(ed[k]?.[s.list] || []).some(hasContent)) probs.push(`Add at least one ${s.item}, or skip this week`);
+  return probs;
+}
+
+function nextStepKey(k) {
+  const i = STEPS.findIndex(s => s.key === k);
+  return (STEPS.slice(i + 1).find(s => !finished(s.key)) || { key: firstOpenStep() }).key;
+}
+
+/* ------------------------------------------------------------------ */
+/* Step bar                                                            */
+/* ------------------------------------------------------------------ */
+
+function renderSteps() {
+  const nav = $('#tabs');
+  nav.innerHTML = '';
+  const ol = el('ol', { class: 'steps' });
+  [...STEPS, { key: 'review', label: 'Review & build' }].forEach((s, i) => {
+    const st = s.key === 'review' ? (allDone() ? 'ready' : 'locked') : stepStatus(s.key);
+    const mark = { done: '✓', skipped: '–', warn: '!', ready: '✓', locked: '★' }[st] || String(i + 1);
+    const sub = { done: 'Done', skipped: 'Skipped', warn: 'Needs a look', ready: 'Ready', locked: 'Last step' }[st] || 'Not done yet';
+    ol.append(el('li', {}, el('button', {
+      class: `step ${st}`, role: 'tab', 'aria-selected': String(s.key === active), title: `${s.label} (${sub})`,
+      onclick: () => goTo(s.key),
+    }, el('span', { class: 'num' }, mark), el('span', { class: 'step-label' }, s.label))));
+  });
+  const n = doneCount();
+  ol.append(el('li', { class: 'progress', 'aria-label': `${n} of ${STEPS.length} parts done`,
+    html: `<span class="bar"><span style="width:${(n / STEPS.length) * 100}%"></span></span><span>${n}/${STEPS.length} done</span>` }));
+  nav.append(ol);
+}
+
+/* ------------------------------------------------------------------ */
+/* Slots: the dashed boxes in the post                                 */
+/* ------------------------------------------------------------------ */
+
+// Single-line text (titles, names, greetings). Enter is ignored; pastes become plain text.
+function textSlot(path, placeholder, { cls = '', tag = 'div', strip = '' } = {}) {
+  const editable = EDIT;
+  const value = String(getPath(ed, path) ?? '');
+  if (!editable && !value) return null;
+  const s = el(tag, { class: `slot text-slot ${cls}`, 'data-path': path, 'data-placeholder': placeholder,
+    contenteditable: editable ? 'true' : null, spellcheck: 'true' });
+  s.textContent = strip ? value.replace(new RegExp(`^${strip}`), '') : value;
+  if (!editable) return s;
+  s.addEventListener('input', () => {
+    let v = s.textContent.replace(/\s+/g, ' ').trim();
+    if (strip) v = v.replace(new RegExp(`^${strip}`), '');
+    setPath(ed, path, v);
+    changed();
+  });
+  s.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); s.blur(); } });
+  s.addEventListener('paste', e => {
+    e.preventDefault();
+    document.execCommand('insertText', false, e.clipboardData.getData('text/plain').replace(/\s+/g, ' ').trim());
+  });
+  return s;
+}
+
+// Rich text (quotes, intros, bodies). Shown rendered; typing and pasting are converted to Markdown.
+function mdSlot(path, placeholder, { tag = 'div', cls = '', defaultText = '' } = {}) {
+  const editable = EDIT;
+  const md = String(getPath(ed, path) ?? '');
+  if (!editable && !md && !defaultText) return null;
+  const s = el(tag, { class: `slot md-slot ${cls}`, 'data-path': path,
+    'data-placeholder': defaultText ? `${defaultText}` : placeholder,
+    contenteditable: editable ? 'true' : null });
+  if (defaultText) s.classList.add('has-default');
+  const show = () => {
+    const v = String(getPath(ed, path) ?? '');
+    if (v) s.innerHTML = mdToHtml(v);
+    else if (!editable && defaultText) s.innerHTML = mdToHtml(defaultText);
+    else s.innerHTML = '';
+    s.classList.toggle('is-empty', !v);
+  };
+  show();
+  if (!editable) return s;
+  s.addEventListener('input', () => {
+    const v = s.textContent.trim() || s.querySelector('img') ? htmlToMd(s.innerHTML) : '';
+    setPath(ed, path, v);
+    s.classList.toggle('is-empty', !v);
+    changed();
+  });
+  s.addEventListener('blur', show);   // tidy the rendering once you leave the box
+  s.addEventListener('paste', e => {
+    e.preventDefault();
+    const html = e.clipboardData.getData('text/html');
+    const text = e.clipboardData.getData('text/plain');
+    skippedImages = 0;
+    const pasted = html ? htmlToMd(html) : (text || '').replace(/\r/g, '').trim();
+    if (!pasted && !skippedImages) return;
+    const current = String(getPath(ed, path) ?? '');
+    const sel = window.getSelection();
+    const replaceAll = !current || !s.textContent.trim() || (sel && sel.toString().trim() && sel.toString().trim() === s.textContent.trim());
+    setPath(ed, path, replaceAll ? pasted : `${current}\n\n${pasted}`.trim());
+    show();
+    report(html, pasted);
+    changed();
+  });
+  return s;
+}
+
+// One item per line, shown rendered (links list, comments list, images).
+function linesSlot(sec, k, kind, placeholder) {
+  const editable = EDIT;
+  const path = `${sec}.${k}`;
+  const rawPath = `${sec}._raw_${k}`;
+  const items = getPath(ed, path) || [];
+  if (!editable && !items.length) return null;
+  const s = el('div', { class: `slot lines-slot lines-${kind}`, 'data-path': path, 'data-placeholder': placeholder,
+    contenteditable: editable ? 'true' : null });
+  const note = el('p', { class: 'slot-hint', hidden: true });
+  const currentText = () => {
+    const raw = getPath(ed, rawPath);
+    return raw && raw.trim() ? raw : (getPath(ed, path) || []).map(LINES[kind].format).join('\n');
+  };
+  const display = text => text.split('\n').filter(l => l.trim()).map(l => {
+    if (kind === 'images') { const u = LINES.images.parse(l); return u ? `![](${u})\n` : l; }
+    return /^\s*[-*]\s+/.test(l) ? l : `- ${l}`;
+  }).join('\n');
+  const show = () => { const t = currentText(); s.innerHTML = t ? mdToHtml(display(t)) : ''; };
+  const sync = text => {
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean).join('\n');
+    const { items: parsed, bad } = parseLines(kind, lines);
+    setPath(ed, rawPath, lines);
+    setPath(ed, path, parsed);
+    note.hidden = !bad.length;
+    note.textContent = bad.length ? `Not understood: “${bad.join('”, “')}”. ${kind === 'comments' ? 'Use “comment” — @username' : kind === 'images' ? 'Paste the image address' : ''}` : '';
+  };
+  show();
+  if (!editable) return s;
+  s.addEventListener('input', () => { sync(htmlToMd(s.innerHTML)); changed(); });
+  s.addEventListener('blur', show);
+  s.addEventListener('paste', e => {
+    e.preventDefault();
+    const html = e.clipboardData.getData('text/html');
+    const text = e.clipboardData.getData('text/plain');
+    skippedImages = 0;
+    let pasted = html ? htmlToMd(html) : (text || '').trim();
+    if (kind === 'links') pasted = pasted.split('\n').filter(l => l.trim()).join('\n');
+    const existing = currentText();
+    sync(existing ? `${existing}\n${pasted}` : pasted);
+    show();
+    report(html, pasted);
+    changed();
+  });
+  const wrap = el('div', {}, s, note);
+  return wrap;
+}
+
+// A link attached to a title: a small chip that turns into an input when clicked.
+function linkChip(path, titleEl, emptyLabel = 'Add thread link') {
+  const editable = EDIT;
+  const wrap = el('div', { class: 'chip-wrap' });
+  const draw = () => {
+    const url = String(getPath(ed, path) ?? '');
+    titleEl?.classList.toggle('linked', !!url);
+    wrap.innerHTML = '';
+    if (!editable) return;
+    wrap.append(el('button', {
+      class: `link-chip ${url ? '' : 'empty'}`, type: 'button', 'data-path': path, title: url || emptyLabel,
+      onclick: () => {
+        const inp = el('input', { class: 'link-input', type: 'url', placeholder: 'Paste the link…', value: url });
+        const save = () => { setPath(ed, path, inp.value.trim()); draw(); changed(); };
+        inp.addEventListener('blur', save);
+        inp.addEventListener('keydown', e => {
+          if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+          if (e.key === 'Escape') { inp.value = url; inp.blur(); }
+        });
+        inp.addEventListener('paste', e => {
+          // A link copied as rich text: keep just its address.
+          const h = e.clipboardData.getData('text/html');
+          const t = e.clipboardData.getData('text/plain').trim();
+          if (/^https?:\/\//.test(t) || !h) return;
+          const a = new DOMParser().parseFromString(h, 'text/html').querySelector('a[href]');
+          if (a) { e.preventDefault(); inp.value = absUrl(a.getAttribute('href')); }
+        });
+        wrap.replaceChildren(inp);
+        inp.focus();
+        inp.select();
+      },
+    }, el('span', {}, url ? `Link: ${url.replace(/^https?:\/\//, '')}` : `+ ${emptyLabel}`)));
+  };
+  draw();
+  return wrap;
+}
+
+function report(html, md) {
+  const links = (md.match(/\]\(|(^|\s)https?:\/\//g) || []).length;
+  const mentions = (md.match(/(^|[^\w@])@\w/g) || []).length;
+  const bits = [];
+  if (links) bits.push(`kept ${links} link${links > 1 ? 's' : ''}`);
+  if (mentions) bits.push(`${mentions} mention${mentions > 1 ? 's' : ''}`);
+  if (/docs-internal-guid|font-weight:\s*normal/i.test(html || '')) bits.push('removed hidden Google Docs bold');
+  if (skippedImages) bits.push(`left out ${skippedImages} embedded image${skippedImages > 1 ? 's' : ''} – paste the image address instead`);
+  toast(`Pasted and tidied${bits.length ? ': ' + bits.join(', ') : ''}.`);
+}
+
+/* ------------------------------------------------------------------ */
+/* Drawing the post                                                    */
+/* ------------------------------------------------------------------ */
+
+const fixed = (tag, props, ...kids) => el(tag, { ...props, class: `fixed ${props?.class || ''}`, title: 'Added for you' }, ...kids);
+const profile = u => `${COMMUNITY}/u/${u}`;
+
+function sectionState(k) {
+  if (active === 'review') return isSkipped(k) ? 'skipped' : 'done';
+  if (k === active) return 'current';
+  if (isSkipped(k)) return 'skipped';
+  if (ed._done?.[k]) return 'done';
+  return 'upcoming';
+}
+
+function renderAll({ scroll = false } = {}) {
+  const y = $('#scroll').scrollTop;
+  renderSteps();
+  renderReview();
+  renderCanvas();
+  renderRail();
+  applyProblems();
+  if (scroll) scrollToActive(); else $('#scroll').scrollTop = y;
+}
+
+function scrollToActive() {
+  const target = active === 'review' ? $('#review') : document.getElementById(`sec-${active}`);
+  target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function headerParts() {
+  const md = lastRender?.parts?.[0]?.markdown || '';
+  const m = md.match(/\*\*(.+? \/ Issue #[^*]+)\*\*/);
+  const foot = lastRender?.parts?.at(-1)?.markdown || '';
+  const n = foot.match(/Next Edition \(([^)]+)\)/);
+  return { dateLine: m ? m[1] : '…', next: n ? n[1] : '…' };
+}
+
+function renderCanvas() {
+  const c = $('#canvas');
+  c.innerHTML = '';
+  const { dateLine, next } = headerParts();
+
+  // Header
+  EDIT = active === 'header';
+  const head = el('section', { class: `sec ${sectionState('header')}`, id: 'sec-header' });
+  head.append(fixed('p', {}, el('img', { src: META.images.banner, alt: '' })),
+              fixed('p', { id: 'date-line' }, el('strong', {}, dateLine)));
+  if (EDIT) {
+    head.append(el('div', { class: 'header-fields' },
+      el('label', {}, 'Edition date ', el('input', { type: 'date', value: ed.date || '', oninput: e => { ed.date = e.target.value; changed(); } })),
+      el('label', {}, 'Issue # ', el('input', { type: 'text', inputmode: 'numeric', placeholder: 'auto', size: '5', value: ed.issue || '', oninput: e => { ed.issue = e.target.value.trim(); changed(); } }))));
+  }
+  const headline = textSlot('headline', 'Headline under the date (optional), e.g. Happy 700th edition of The gaff!');
+  if (headline) head.append(headline);
+  if (EDIT) {
+    head.append(el('p', { class: 'slot-label' }, 'Last week’s thread (the “Previous Edition” link at the bottom)'),
+                linkChip('previous_edition', null, 'Paste last week’s thread link'),
+                el('p', { class: 'slot-label' }, 'This week’s thread, once posted (next week’s edition links back to it)'),
+                linkChip('posted_url', null, 'Paste after posting'));
+    head.append(actionsBar('header'));
+  } else {
+    head.append(statePill('header'));
+  }
+  c.append(head);
+
+  // Standard sections
+  for (const s of STEPS.slice(1, 5)) c.append(renderSection(s));
+
+  // Extra sections, then a placeholder to add more
+  c.append(renderExtras());
+
+  // Footer
+  EDIT = false;
+  const prev = ed.previous_edition;
+  c.append(fixed('hr', {}), fixed('h3', {}, 'Thanks for reading!'),
+    fixed('p', {}, prev ? el('a', { href: prev, target: '_blank', rel: 'noopener' }, 'Previous Edition') : el('span', { class: 'missing' }, 'Previous Edition (link needed)'), ` | Next Edition (${next})`));
+}
+
+function statePill(k) {
+  const st = sectionState(k);
+  const label = { done: '✓ Done · edit', current: 'Working on this', skipped: 'Skipped · include', upcoming: hasContent(ed[k]) ? 'Not ticked yet · open' : null }[st];
+  if (!label || active === 'review') return null;
+  return el('button', { class: `state-pill ${st}`, type: 'button', onclick: () => st !== 'current' && openStep(k) }, label);
+}
+
+function byLine(k) {
+  const author = ed[k]?.author || META.authors[k] || '';
+  if (EDIT) {
+    const slot = textSlot(`${k}.author`, 'username', { cls: 'inline-slot', tag: 'span', strip: '@' });
+    slot.addEventListener('blur', () => renderAll());   // e.g. the giffgaffiversary closing line names the author
+    return el('h4', {}, el('em', {}, 'by @', slot));
+  }
+  return fixed('h4', {}, el('em', {}, 'by ', el('a', { href: profile(author), target: '_blank', rel: 'noopener' }, '@' + author)));
+}
+
+function renderSection(s) {
+  const k = s.key;
+  ed[k] = ed[k] || {};
+  const d = ed[k];
+  const st = sectionState(k);
+  EDIT = st === 'current';
+  // An open section always shows at least one empty item, so its placeholders are visible straight away.
+  if (EDIT && s.list && !(d[s.list] || []).length) d[s.list] = [{}];
+  const box = el('section', { class: `sec ${st}`, id: `sec-${k}` }, fixed('hr', {}), fixed('h3', {}, d.title || s.title), byLine(k), statePill(k));
+
+  if (st === 'skipped') {
+    box.append(el('p', { class: 'later' }, 'Not in this week’s gaff. ', active !== 'review' && el('button', { type: 'button', onclick: () => openStep(k) }, 'Include it')));
+    return box;
+  }
+  if (st === 'upcoming' && !hasContent(d)) {
+    box.append(el('p', { class: 'later' }, 'Not started yet. ', el('button', { type: 'button', onclick: () => openStep(k) }, 'Start it now')));
+    return box;
+  }
+
+  if (k === 'happenings') {
+    (d.stories ||= []).forEach((it, i) => {
+      if (!EDIT && !hasContent(it)) return;
+      const t = textSlot(`happenings.stories.${i}.title`, 'Story title', { cls: 'title-slot bold' });
+      box.append(itemCard(k, 'stories', i, t, linkChip(`happenings.stories.${i}.link`, t),
+        mdSlot(`happenings.stories.${i}.quote`, 'Paste the post here, straight from the community or Google Docs', { tag: 'blockquote' })));
+    });
+    if (EDIT) box.append(addButton(k, 'stories', '+ Add a story', {}));
+    if (EDIT || (d.buzzing || []).length) {
+      box.append(fixed('p', {}, el('strong', {}, 'See what’s been buzzing on our Community this week:')),
+                 linesSlot(k, 'buzzing', 'links', 'Paste links to this week’s busy threads, one per line'));
+    }
+  }
+
+  if (k === 'say_hello') {
+    box.append(fixed('p', {}, el('img', { src: META.images.say_hello, alt: '' })),
+               mdSlot('say_hello.intro', '', { defaultText: META.defaults.say_hello_intro }));
+    (d.members ||= []).forEach((it, i) => {
+      if (!EDIT && !hasContent(it)) return;
+      const t = textSlot(`say_hello.members.${i}.title`, 'Their intro thread title', { cls: 'title-slot' });
+      box.append(itemCard(k, 'members', i, avatarPicker(`say_hello.members.${i}.avatar`, i), t,
+        linkChip(`say_hello.members.${i}.link`, t),
+        textSlot(`say_hello.members.${i}.greeting`, 'Greeting, e.g. Hiya and welcome to the community @username', { cls: 'greeting' }),
+        mdSlot(`say_hello.members.${i}.quote`, 'Paste their post here', { tag: 'blockquote' })));
+    });
+    if (EDIT) box.append(addButton(k, 'members', '+ Add a new member', {}));
+    box.append(mdSlot('say_hello.outro', '', { defaultText: META.defaults.say_hello_outro }));
+  }
+
+  if (k === 'giffgaffiversary') {
+    box.append(fixed('p', {}, el('img', { src: META.images.giffgaffiversary, alt: '' })),
+               mdSlot('giffgaffiversary.intro', 'Intro, e.g. I hope you had a good week and you’re ready for our latest edition'));
+    (d.posts ||= []).forEach((it, i) => {
+      if (!EDIT && !hasContent(it)) return;
+      const t = textSlot(`giffgaffiversary.posts.${i}.title`, 'Their anniversary thread title', { cls: 'title-slot' });
+      box.append(itemCard(k, 'posts', i, t, linkChip(`giffgaffiversary.posts.${i}.link`, t),
+        textSlot(`giffgaffiversary.posts.${i}.greeting`, 'Greeting, e.g. Congratulations @username!', { cls: 'greeting' }),
+        mdSlot(`giffgaffiversary.posts.${i}.quote`, 'Paste their post here', { tag: 'blockquote' })));
+    });
+    if (EDIT) box.append(addButton(k, 'posts', '+ Add an anniversary', {}));
+    const author = d.author || META.authors.giffgaffiversary;
+    box.append(fixed('p', {}, el('strong', {}, `If it’s YOUR giffgaffiversary, please let the team know by sending a private message to `,
+      el('a', { class: 'mention', href: profile(author), target: '_blank', rel: 'noopener' }, '@' + author))));
+  }
+
+  if (k === 'photo_of_the_week') {
+    box.append(fixed('p', {}, el('img', { src: META.images.photo_of_the_week, alt: '' })));
+    const title = textSlot('photo_of_the_week.photo_title', 'photo thread title', { cls: 'inline-slot bold', tag: 'span' })
+      || el('span', { class: 'missing' }, 'photo title');
+    const byName = String(d.by || '').replace(/^@/, '');
+    const by = EDIT
+      ? [el('span', { class: 'fixed' }, ' by @'), textSlot('photo_of_the_week.by', 'username', { cls: 'inline-slot', tag: 'span', strip: '@' })]
+      : [' by ', byName ? el('a', { class: 'mention', href: profile(byName), target: '_blank', rel: 'noopener' }, '@' + byName) : el('span', { class: 'missing' }, '@username')];
+    box.append(el('p', {}, el('span', { class: 'fixed' }, 'This week’s featured photo is '), title, ...by),
+               linkChip('photo_of_the_week.link', title, 'Add the photo thread link'));
+    if (EDIT || (d.comments || []).length) {
+      box.append(fixed('p', {}, el('strong', {}, 'See what fellow members are saying:')),
+                 linesSlot(k, 'comments', 'comments', 'Paste comments, one per line:  “comment” — @username'));
+    }
+    const imgs = linesSlot(k, 'images', 'images', 'Paste the photo’s image address (right-click the photo → Copy image address)');
+    if (imgs) box.append(imgs);
+    const outro = mdSlot('photo_of_the_week.outro', 'Closing paragraph');
+    if (outro) box.append(outro);
+  }
+
+  if (EDIT) box.append(actionsBar(k));
+  return box;
+}
+
+function renderExtras() {
+  const st = sectionState('extras');
+  EDIT = st === 'current';
+  const wrap = el('div', { class: `sec extras-wrap ${st}`, id: 'sec-extras' });
+  const list = (ed.sections ||= []);
+  list.forEach((sec, i) => {
+    if (!EDIT && !hasContent(sec)) return;
+    const box = el('div', { class: 'item extra' });
+    if (EDIT) box.append(itemTools('sections', i, list));
+    const title = textSlot(`sections.${i}.title`, 'Section title, e.g. Tech News', { cls: 'inline-slot', tag: 'span' });
+    const author = textSlot(`sections.${i}.author`, 'username', { cls: 'inline-slot', tag: 'span', strip: '@' });
+    box.append(fixed('hr', {}), el('h3', {}, title || '(untitled section)'));
+    if (author) box.append(el('h4', {}, el('em', {}, 'by @', author)));
+    if (EDIT) box.append(linkChip(`sections.${i}.image`, null, 'Add a header image address (optional)'));
+    if (sec.image) box.append(fixed('p', {}, el('img', { src: sec.image, alt: '' })));
+    const body = mdSlot(`sections.${i}.body`, 'Paste or write the section here');
+    if (body) box.append(body);
+    wrap.append(box);
+  });
+  if (EDIT) {
+    wrap.append(addSectionPlaceholder(list.length ? 'Add another section' : 'Add a section here (e.g. Tech News)'));
+    wrap.append(actionsBar('extras'));
+  } else if (active !== 'review') {
+    // Placeholder visible from any step: jump to Extras and add one.
+    wrap.append(addSectionPlaceholder(list.length ? 'Add another section' : 'Add a section here (e.g. Tech News)', true));
+    if (list.some(hasContent)) wrap.append(statePill('extras'));
+  }
+  return wrap;
+}
+
+function addSectionPlaceholder(label, jump = false) {
+  return el('button', { class: 'add-section', type: 'button', onclick: () => {
+    (ed.sections ||= []).push({ title: '', author: '', body: '' });
+    if (jump || active !== 'extras') { delete (ed._done ||= {}).extras; active = 'extras'; }
+    changed();
+    renderAll();
+    const i = ed.sections.length - 1;
+    const t = document.querySelector(`[data-path="sections.${i}.title"]`);
+    t?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    t?.focus();
+  } }, el('span', { class: 'plus' }, '+'), el('span', {}, label), el('small', {}, 'Goes after Photo of the Week, with its own title, author and body'));
+}
+
+function itemCard(k, listKey, i, ...kids) {
+  const card = el('div', { class: 'item' });
+  if (EDIT) card.append(itemTools(`${k}.${listKey}`, i, ed[k][listKey]));
+  card.append(...kids.filter(Boolean));
+  return card;
+}
+
+function itemTools(path, i, list) {
+  const btn = (label, title, fn, disabled) => el('button', { type: 'button', title, disabled, onclick: () => { fn(); changed(); renderAll(); } }, label);
+  return el('div', { class: 'item-tools' },
+    btn('↑', 'Move up', () => list.splice(i - 1, 0, list.splice(i, 1)[0]), i === 0),
+    btn('↓', 'Move down', () => list.splice(i + 1, 0, list.splice(i, 1)[0]), i === list.length - 1),
+    btn('✕', 'Remove', () => { if (!hasContent(list[i]) || confirm('Remove this item?')) list.splice(i, 1); }));
+}
+
+function addButton(k, listKey, label, blank) {
+  return el('button', { class: 'add-btn', type: 'button', onclick: () => {
+    (ed[k][listKey] ||= []).push({ ...blank });
+    changed();
+    renderAll();
+    const i = ed[k][listKey].length - 1;
+    const first = document.querySelector(`[data-path^="${k}.${listKey}.${i}."].text-slot`);
+    first?.focus();
+  } }, label);
+}
+
+function avatarPicker(path, i) {
+  const ids = Object.keys(META.avatars);
+  let current = getPath(ed, path);
+  if (current === undefined || current === '') current = ids[(i) % ids.length];
+  const row = el('div', { class: 'avatar-pick' });
+  for (const id of ids) {
+    const on = String(current) === id;
+    if (!EDIT && !on) continue;
+    row.append(el('img', { src: META.avatars[id], alt: `Stock avatar ${id}`, class: on ? 'on' : '',
+      onclick: EDIT ? () => { setPath(ed, path, Number(id)); changed(); renderAll(); } : null }));
+  }
+  if (!ids.includes(String(current)) && current) row.append(el('img', { src: current, alt: 'Custom avatar', class: 'on' }));
+  if (EDIT) row.append(el('small', {}, 'pick an avatar'));
+  return row;
+}
+
+function actionsBar(k) {
+  const s = STEP_BY[k];
+  const problems = el('div', { class: 'problems', id: `problems-${k}` });
+  return el('div', { class: 'sec-actions' }, problems,
+    s.toggle && el('button', { class: 'btn', type: 'button', onclick: () => skip(k) }, 'Skip this week'),
+    el('button', { class: 'btn primary', type: 'button', id: `mark-${k}`, onclick: () => markDone(k) }, markLabel(k)));
+}
+
+function markLabel(k) {
+  if (k === 'extras' && !(ed.sections || []).some(hasContent)) return 'No extras – continue →';
+  return `Mark ${STEP_BY[k].label} done & continue →`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Problems shown on the slots themselves                              */
+/* ------------------------------------------------------------------ */
+
+const CONTENT_ERROR = /isn’t closed|embedded data/;
+
+function applyProblems() {
+  document.querySelectorAll('.slot.problem, .link-chip.problem').forEach(n => n.classList.remove('problem'));
+  document.querySelectorAll('.slot-hint.auto').forEach(n => n.remove());
+  if (!lastRender) return;
+  for (const w of lastRender.warnings) {
+    const sec = warningSection(w);
+    const contentError = CONTENT_ERROR.test(w);
+    if (!contentError && !attempted[sec] && stepStatus(sec) !== 'warn') continue;
+    if (contentError) { markContentErrors(sec, w); continue; }
+    const path = warningPath(w);
+    let target = path && document.querySelector(`[data-path="${path}"]`);
+    if (!target && path) target = document.querySelector(`[data-path="${path.split('.').slice(0, 2).join('.')}"]`);
+    if (target) hint(target, friendly(w).replace(/^[^:]+: /, ''));
+  }
+  for (const s of STEPS) {
+    const box = document.getElementById(`problems-${s.key}`);
+    if (!box) continue;
+    const probs = attempted[s.key] ? sectionProblems(s.key) : [];
+    box.innerHTML = probs.length ? `<p class="slot-hint">Before you tick this off: ${probs.map(esc).join(' · ')}</p>` : '';
+  }
+}
+
+function markContentErrors(sec, w) {
+  const scope = document.getElementById(`sec-${sec}`) || document;
+  let found = false;
+  scope.querySelectorAll('.md-slot').forEach(slot => {
+    const md = String(getPath(ed, slot.dataset.path) ?? '');
+    const bad = /isn’t closed/.test(w) ? unclosedBold(md).length : /!\[[^\]]*\]\(\s*(data|blob):/.test(md);
+    if (bad) { found = true; hint(slot, /isn’t closed/.test(w) ? 'A ** (bold) isn’t closed, so it would show as stars. Remove it, or close it on the same line.' : 'This has an embedded image. Replace it with the image’s web address.'); }
+  });
+  if (!found) {
+    const box = document.getElementById(`problems-${sec}`);
+    if (box) box.append(el('p', { class: 'slot-hint auto' }, friendly(w)));
+  }
+}
+
+function unclosedBold(md) {
+  return md.split('\n').filter(l => {
+    const t = l.replace(/^\s*(>\s?)+/, '').replace(/`[^`]*`|https?:\/\/[^\s)*]+/g, '');
+    return (t.match(/\*\*/g) || []).length % 2;
+  });
+}
+
+function hint(target, msg) {
+  if (target.classList.contains('problem')) return;
+  target.classList.add('problem');
+  const anchor = target.closest('.chip-wrap') || target.closest('h4, h3, p:not(.slot)') || target;
+  anchor.after(el('p', { class: 'slot-hint auto' }, msg));
+}
+
+/* ------------------------------------------------------------------ */
+/* Journey                                                             */
+/* ------------------------------------------------------------------ */
+
+function goTo(k) {
+  if (k === 'review') { active = 'review'; renderAll({ scroll: true }); return; }
+  openStep(k, { untick: false });
+}
+
+function openStep(k, { untick = true } = {}) {
+  if (untick && ed._done?.[k]) delete ed._done[k];
+  if (isSkipped(k)) ed[k].enabled = true;
+  active = k;
+  changed();
+  renderAll({ scroll: true });
+}
+
+async function markDone(k) {
+  attempted[k] = true;
+  await refresh();
+  const probs = sectionProblems(k);
+  if (probs.length) { applyProblems(); document.getElementById(`problems-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  ed._done = { ...(ed._done || {}), [k]: true };
+  const next = nextStepKey(k);
+  active = next;
+  changed();
+  renderAll({ scroll: true });
+  toast(next === 'review' ? 'Everything’s ticked off. Have a last look, then build.' : `${STEP_BY[k].label} ticked off. On to ${STEP_BY[next]?.label}.`);
+}
+
+function skip(k) {
+  ed[k] = { ...(ed[k] || {}), enabled: false };
+  ed._done = { ...(ed._done || {}), [k]: true };
+  active = nextStepKey(k);
+  changed();
+  renderAll({ scroll: true });
+}
+
+function renderReview() {
+  const box = $('#review');
+  box.innerHTML = '';
+  if (active !== 'review') return;
+  const list = el('ul', { class: 'review-list' });
+  STEPS.forEach((s, i) => {
+    const st = stepStatus(s.key);
+    const label = { done: 'Done', skipped: 'Skipped this week', warn: 'Ticked, but needs a look', todo: 'Not done yet' }[st];
+    list.append(el('li', { class: st },
+      el('span', { class: 'num' }, { done: '✓', skipped: '–', warn: '!' }[st] || String(i + 1)),
+      el('span', { class: 'review-name' }, s.label, el('small', {}, label)),
+      el('button', { class: 'btn small ghost', type: 'button', onclick: () => openStep(s.key, { untick: st === 'todo' }) }, st === 'todo' ? 'Go' : 'Edit')));
+  });
+  box.append(el('div', { class: 'review-card' },
+    el('h2', { class: 'step-title' }, allDone() ? 'Ready to build' : 'Review & build'),
+    el('p', { class: 'section-intro' }, allDone() ? 'Everything is ticked off. The post below is exactly what will be built.' : 'Tick off every part first:'),
+    list,
+    el('button', { class: 'btn primary big', type: 'button', disabled: !allDone(), onclick: build }, `Build ${lastRender?.title || 'the edition'}`)));
+}
+
+/* ------------------------------------------------------------------ */
+/* Markdown rail, refresh, autosave                                    */
+/* ------------------------------------------------------------------ */
+
+function partMatches(key) {
+  if (active === 'review') return false;
+  if (active === 'header') return key === 'header' || key === 'footer';
+  if (active === 'extras') return key.startsWith('sections.');
+  return key === active;
+}
+
+function renderRail() {
+  const out = $('#rail-md');
+  out.innerHTML = '';
+  for (const part of lastRender?.parts || []) {
+    out.append(el('div', { class: `md-part ${partMatches(part.key) ? 'active' : ''}`, 'data-key': part.key }, el('pre', {}, part.markdown)));
+  }
+  if ($('#studio').classList.contains('rail-open')) out.querySelector('.md-part.active')?.scrollIntoView({ block: 'nearest' });
+}
+
+async function refresh() {
+  try {
+    lastRender = await api('/api/render', ed);
+  } catch (err) {
+    $('#save-status').textContent = 'Preview failed: ' + err.message;
+    return;
+  }
+  $('#thread-title').textContent = lastRender.title;
+  document.title = `${lastRender.title} – editor`;
+  const { dateLine } = headerParts();
+  const dl = $('#date-line strong');
+  if (dl) dl.textContent = dateLine;
+  const mark = $('#mark-extras');
+  if (mark) mark.textContent = markLabel('extras');
+  renderSteps();
+  renderRail();
+  applyProblems();
+  if (active === 'review') renderReview();
+}
+
+const scheduleRefresh = debounce(refresh, 300);
+const scheduleSave = debounce(async () => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ed.date || '')) return;
+  try {
+    await api('/api/draft', ed);
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    $('#save-status').textContent = MODE === 'browser' ? `Saved in this browser ${time}` : `Draft saved ${time}`;
+    loadList();
+  } catch (err) {
+    $('#save-status').textContent = 'Not saved: ' + err.message;
+  }
+}, 1200);
+
+function changed() {
+  $('#save-status').textContent = 'Editing…';
+  scheduleRefresh();
+  scheduleSave();
+}
+
+function setRail(open) {
+  $('#studio').classList.toggle('rail-open', open);
+  const t = $('#rail-toggle');
+  t.textContent = open ? '»' : '«';
+  t.title = open ? 'Collapse the Markdown' : 'Show the Markdown';
+  t.setAttribute('aria-expanded', String(open));
+  $('#rail-copy').textContent = open ? 'Copy all' : 'Copy';
+  try { localStorage.setItem('gaff.railOpen', open ? '1' : '0'); } catch { /* storage unavailable */ }
+  if (open) renderRail();
+}
+
+/* ------------------------------------------------------------------ */
+/* Open / new / build                                                  */
+/* ------------------------------------------------------------------ */
+
+async function loadList() {
+  const { drafts, editions, backups = {} } = await api('/api/list');
+  const stamp = s => `${s.slice(6, 8)}/${s.slice(4, 6)} ${s.slice(9, 11)}:${s.slice(11, 13)}:${s.slice(13, 15)}`;
+  $('#open-select').innerHTML = '<option value="">Open…</option>' +
+    (drafts.length ? `<optgroup label="Drafts">${drafts.map(n => `<option value="draft:${n}">${n}</option>`).join('')}</optgroup>` : '') +
+    (editions.length ? `<optgroup label="Built editions">${editions.map(n => `<option value="edition:${n}">${n}</option>`).join('')}</optgroup>` : '') +
+    Object.entries(backups).map(([d, list]) => list.length
+      ? `<optgroup label="Earlier versions of ${d}">${list.map(s => `<option value="backup:${d}/${s}">${d} as at ${stamp(s)}</option>`).join('')}</optgroup>` : '').join('');
+}
+
+async function openSaved(value) {
+  const [kind, name] = value.split(':');
+  if (kind === 'backup' && !confirm('Open this earlier version? It becomes the current draft as soon as you edit it (the version you have now is kept as a backup).')) return;
+  ed = await api(`/api/open?kind=${kind}&name=${encodeURIComponent(name)}`);
+  ed._done = ed._done || {};
+  Object.keys(attempted).forEach(k => delete attempted[k]);
+  await refresh();
+  active = firstOpenStep();
+  renderAll({ scroll: true });
+  $('#save-status').textContent = `Opened ${kind} ${name}`;
+}
+
+async function newEdition() {
+  const next = await api('/api/new');
+  const date = prompt('Date for the new edition (YYYY-MM-DD):', next.date);
+  if (!date) return;
+  const { drafts } = await api('/api/list');
+  if (drafts.includes(date)) {
+    const fresh = confirm(`There’s already a draft for ${date}.\n\nOK = start ${date} again from scratch (the current draft is kept under Open… → Earlier versions)\nCancel = open the existing draft`);
+    if (!fresh) return openSaved(`draft:${date}`);
+  }
+  ed = date === next.date ? next : await api(`/api/new?date=${encodeURIComponent(date)}`);
+  ed._done = {};
+  Object.keys(attempted).forEach(k => delete attempted[k]);
+  active = 'header';
+  await refresh();
+  renderAll({ scroll: true });
+  changed();
+}
+
+async function build() {
+  const dlg = $('#done-dialog');
+  const body = $('#done-body');
+  body.innerHTML = '<h3>Building…</h3>';
+  dlg.showModal();
+  let res;
+  try {
+    res = await api('/api/build', ed);
+  } catch (err) {
+    body.innerHTML = `<h3>Couldn’t build</h3><p>${esc(err.message)}</p><div class="dialog-actions"><button class="btn">Close</button></div>`;
+    return;
+  }
+  if (!res.ok) {
+    body.innerHTML = `<h3>A few things still need filling in</h3><ul>${res.errors.map(e => `<li class="err-item" data-w="${esc(e)}">${esc(friendly(e))}</li>`).join('')}</ul>
+      <div class="dialog-actions"><button class="btn">Back to editing</button></div>`;
+    body.querySelectorAll('.err-item').forEach(li => (li.onclick = () => { dlg.close(); openStep(warningSection(li.dataset.w)); }));
+    return;
+  }
+  const saved = res.browser
+    ? '<p class="files">Saved in this browser. Download the files if you want a copy elsewhere.</p>'
+    : `<p class="files">Saved <code>${esc(res.files[1])}</code> and <code>${esc(res.files[0])}</code>.</p>`;
+  body.innerHTML = `<h3>${esc(res.title)} is built</h3>
+    ${saved}
+    <textarea readonly>${esc(res.markdown)}</textarea>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="dlg-copy-title">Copy title</button>
+      ${res.browser ? '<button type="button" class="btn" id="dlg-download-md">Download .md</button><button type="button" class="btn" id="dlg-download-draft">Save file</button>' : ''}
+      <button type="button" class="btn primary" id="dlg-copy-md">Copy Markdown</button>
+      <button class="btn">Close</button>
+    </div>`;
+  $('#dlg-copy-title').onclick = e => copy(res.title, e.target, 'Title copied');
+  $('#dlg-copy-md').onclick = e => copy(res.markdown, e.target, 'Copied – paste into the composer');
+  if (res.browser) {
+    $('#dlg-download-md').onclick = () => download(`the-gaff-${ed.date}.md`, res.markdown, 'text/markdown');
+    $('#dlg-download-draft').onclick = saveFile;
+  }
+  loadList();
+}
+
+/* Files: keep a copy of a draft outside the browser, or move it to another computer. */
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type: `${type};charset=utf-8` }));
+  const a = el('a', { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function saveFile() {
+  download(`the-gaff-${ed.date || 'draft'}.json`, JSON.stringify(ed, null, 2), 'application/json');
+}
+
+function openFile() {
+  const input = el('input', { type: 'file', accept: '.json,application/json' });
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if (!file) return;
+    let data;
+    try { data = JSON.parse(await file.text()); } catch { return toast('That file isn’t a gaff draft (it isn’t valid JSON).'); }
+    if (!data || typeof data !== 'object' || !/^\d{4}-\d{2}-\d{2}$/.test(data.date || '')) return toast('That file isn’t a gaff draft (no edition date found).');
+    ed = data;
+    ed._done = ed._done || {};
+    Object.keys(attempted).forEach(k => delete attempted[k]);
+    await refresh();
+    active = firstOpenStep();
+    renderAll({ scroll: true });
+    changed();
+    toast(`Opened ${file.name}.`);
+  });
+  input.click();
+}
+
+/* ------------------------------------------------------------------ */
+/* Start                                                               */
+/* ------------------------------------------------------------------ */
+
+async function init() {
+  MODE = await detectMode();
+  document.body.dataset.mode = MODE;
+  META = await api('/api/meta');
+  ed = await api('/api/latest');
+  ed._done = ed._done || {};
+  await refresh();
+  active = firstOpenStep();
+  renderAll({ scroll: true });
+  await loadList();
+
+  $('#open-select').onchange = e => { if (e.target.value) openSaved(e.target.value); e.target.value = ''; };
+  $('#new-btn').onclick = newEdition;
+  $('#review-btn').onclick = () => goTo('review');
+  $('#copy-title').onclick = e => copy(lastRender?.title || '', e.target, '✓');
+  $('#rail-toggle').onclick = () => setRail(!$('#studio').classList.contains('rail-open'));
+  $('#rail-heading').onclick = () => { if (!$('#studio').classList.contains('rail-open')) setRail(true); };
+  $('#rail-copy').onclick = e => copy(lastRender?.markdown || '', e.target, '✓');
+  $('#save-file').onclick = saveFile;
+  $('#open-file').onclick = openFile;
+  let open = false;
+  try { open = localStorage.getItem('gaff.railOpen') === '1'; } catch { /* storage unavailable */ }
+  setRail(open);
+}
+
+init().catch(err => {
+  document.body.innerHTML = `<p style="padding:20px">Couldn’t start the editor: ${esc(err.message)}.</p>`;
+});
