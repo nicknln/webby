@@ -534,3 +534,42 @@ body[data-part] .editor-only { display: none !important; }
 .post blockquote:not([contenteditable]) {
   background: #f4f4f2; border-left: 3px solid #cfcfca; border-radius: 0 4px 4px 0; padding: 10px 14px; margin: 6px 0 16px;
 }
+
+/* The "you're here" line starts at the section's divider, not in the gap above it */
+.post .sec { margin-top: 26px; padding-top: 0; }
+.post .sec:first-child { margin-top: 0; }
+.post .sec > hr.fixed:first-child { margin: 0 0 16px; }
+.post .sec-title-row > h3 { margin-top: 0; }
+.sec.current { box-shadow: -3px 0 0 #1e7b3c; }
+
+/* ======================================================================
+   A little colour, only where it means something:
+   green = done / continue, amber = needs attention. Everything else stays grey.
+   ====================================================================== */
+:root { --go: #1e7b3c; --go-dark: #17642f; --go-soft: #e7f3ea; --warn: #9a5b00; --warn-soft: #fff4dc; --warn-line: #d89a2b; }
+
+/* Main buttons: Mark … done & continue, Review & build, Build, Send my part */
+.btn.primary, .post .btn.primary { background: var(--go); color: #fff; border-color: var(--go); }
+.btn.primary:hover:not(:disabled) { background: var(--go-dark); filter: none; }
+.btn.primary:disabled { background: #9fbfa8; border-color: #9fbfa8; }
+
+/* Done */
+.post .sec-status.done .sec-status-text { color: var(--go); }
+.step.done .num, .step.ready .num { background: var(--go); border-color: var(--go); color: #fff; }
+.review-list .done .num { background: var(--go); border-color: var(--go); color: #fff; }
+.steps li.progress { color: var(--go); }
+
+/* Needs attention */
+.step.warn .num, .review-list .warn .num { background: var(--warn-line); border-color: var(--warn-line); color: #fff; }
+.post .slot-hint, .step-problems, .warn-list, .part-error {
+  color: var(--warn); background: var(--warn-soft); border-left: 3px solid var(--warn-line); border-radius: 0 4px 4px 0;
+}
+.post .slot.problem, .post .slot.problem[contenteditable], .post .link-chip.problem, .q input.problem {
+  outline: 2px solid var(--warn-line) !important; outline-offset: 0;
+}
+
+/* Remove: grey until you point at it */
+.post .item-btn:last-child:hover:not(:disabled) { color: #b42318; border-color: #b42318; }
+
+/* Notes from contributors */
+.post .from-note { border-left: 3px solid var(--go); background: var(--go-soft); color: #1d3b26; border-radius: 0 4px 4px 0; padding: 4px 10px; }

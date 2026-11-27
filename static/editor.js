@@ -27,7 +27,12 @@ const STEP_BY = Object.fromEntries(STEPS.map(s => [s.key, s]));
 const $ = s => document.querySelector(s);
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
+// Every box in the editor is content, not a login: tell browsers and password
+// managers (Bitwarden, 1Password, LastPass…) not to offer to fill them.
+const NO_AUTOFILL = { autocomplete: 'off', 'data-bwignore': 'true', 'data-1p-ignore': 'true', 'data-lpignore': 'true', 'data-form-type': 'other' };
+
 function el(tag, props = {}, ...kids) {
+  if (tag === 'input') props = { ...NO_AUTOFILL, ...props };
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
     if (v === undefined || v === null || v === false) continue;
@@ -542,7 +547,7 @@ const titleRow = (heading, status) => el('div', { class: 'sec-title-row' }, head
 // A small text box straight after "by @", sized to the name.
 function authorInput(path, value) {
   const inp = el('input', { type: 'text', class: 'author-box', 'data-path': path, value: String(value || '').replace(/^@/, ''),
-    placeholder: 'username', 'aria-label': 'Written by (community username)', spellcheck: 'false' });
+    placeholder: 'name', 'aria-label': 'Written by', spellcheck: 'false' });
   const fit = () => { inp.size = Math.max(9, inp.value.length + 1); };
   fit();
   inp.addEventListener('input', () => { setPath(ed, path, inp.value.replace(/^@/, '').trim()); fit(); changed(); });
@@ -909,7 +914,7 @@ function openAddPart(preloaded) {
     <div class="dialog-actions" style="justify-content:flex-start">
       <button type="button" class="btn" id="part-file">Choose their file…</button>
     </div>
-    <div class="paste-link"><input type="url" id="part-link" placeholder="…or paste their link here"><button type="button" class="btn" id="part-link-go">Add</button></div>
+    <div class="paste-link"><input type="url" id="part-link" placeholder="…or paste their link here" autocomplete="off" data-bwignore="true" data-1p-ignore="true" data-lpignore="true" data-form-type="other"><button type="button" class="btn" id="part-link-go">Add</button></div>
     <p class="part-error" id="part-error" hidden></p>
     <hr>
     <h4>Ask for a part</h4>
