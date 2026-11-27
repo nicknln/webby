@@ -451,3 +451,65 @@ body[data-part] .editor-only { display: none !important; }
 .post .greeting { margin: 0 0 12px; }
 .post .avatar-pick { margin: 4px 0 10px; }
 .post .add-btn { margin: 4px 0 22px; padding: 8px 14px; font-size: 13px; }
+
+/* ======================================================================
+   Sections: tidy form-style boxes (overrides the dashed look above)
+   ====================================================================== */
+.post .slot[contenteditable] {
+  outline: 1px solid #c4c4bf; outline-offset: 0; border-radius: 4px; background: #fff;
+}
+.post .slot[contenteditable]:hover { outline-color: #9a9a95; }
+.post .slot[contenteditable]:focus { outline: 2px solid #333; }
+.post .slot[contenteditable]:empty::before, .post .slot[contenteditable].is-empty::before {
+  font-style: normal; color: #8e8e89;
+}
+.post .text-slot[contenteditable] { padding: 9px 11px; margin: 4px 0 6px; min-height: 0; }
+.post .title-slot.bold[contenteditable] { font-weight: 700; }
+.post blockquote.slot[contenteditable] { background: #fff; padding: 12px 14px; margin: 6px 0 4px; min-height: 90px; }
+.post .md-slot[contenteditable]:not(blockquote) { padding: 10px 12px; margin: 6px 0 14px; }
+.post .lines-slot[contenteditable] { padding: 9px 11px; margin: 6px 0 4px; }
+.post .slot.problem, .post .slot.problem[contenteditable] { outline: 2px solid #333 !important; }
+
+/* "by @username": a small box sized to the name */
+.post h4.by-line { display: flex; align-items: center; gap: 2px; margin: 4px 0 14px; }
+.post .author-box {
+  font: italic 700 16px system-ui, -apple-system, "Segoe UI", sans-serif; color: #1d1d1b;
+  border: 1px solid #c4c4bf; border-radius: 4px; background: #fff; padding: 3px 7px; width: auto;
+}
+.post .author-box:focus { outline: 2px solid #333; outline-offset: 0; border-color: #333; }
+
+/* Each story / member / anniversary: a heading row, then its boxes */
+.post .item { padding: 18px 0 10px; }
+.sec.current .item + .item, .sec.current .item + .add-btn { border-top: 1px solid #e3e3df; }
+.post .item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
+.post .item-name { font: 600 13px system-ui, -apple-system, "Segoe UI", sans-serif; color: #5f5f5a; text-transform: uppercase; letter-spacing: .04em; }
+.post .item-tools, .sec.current .item:hover > .item-tools, .sec.current .item:focus-within > .item-tools {
+  position: static; display: flex; gap: 6px;
+}
+.post .item-btn {
+  font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; color: #333; background: #fff;
+  border: 1px solid #c4c4bf; border-radius: 4px; padding: 3px 10px; cursor: pointer;
+}
+.post .item-btn:hover:not(:disabled) { border-color: #333; }
+.post .item-btn:disabled { opacity: .4; cursor: default; }
+
+/* The thread link: a plain text link under the title */
+.post .chip-wrap { margin: 2px 0 10px; }
+.post .link-chip, .post .link-chip.empty {
+  border: 0; background: none; padding: 2px 0; border-radius: 0;
+  font: 14px system-ui, -apple-system, "Segoe UI", sans-serif; color: #333; text-decoration: underline; text-underline-offset: 3px;
+}
+.post .link-chip:hover { color: #000; }
+.post .link-input { font-size: 14px; padding: 8px 10px; border: 1px solid #333; border-radius: 4px; max-width: 560px; }
+
+/* "+ Add another story": a normal button */
+.post .add-btn {
+  display: inline-block; font: 600 14px system-ui, -apple-system, "Segoe UI", sans-serif; color: #1d1d1b;
+  background: #fff; border: 1px solid #b5b5b0; border-radius: 4px; padding: 8px 14px; margin: 10px 0 24px;
+}
+.post .add-btn:hover { border-color: #333; color: #000; }
+
+/* Labels above boxes, and room between stacked boxes */
+.post .slot-label { font: 600 14px system-ui, -apple-system, "Segoe UI", sans-serif; color: #1d1d1b; margin: 18px 0 4px; }
+.post .lines-slot[contenteditable] { margin: 6px 0 14px; }
+.post .chip-wrap + .fixed, .post .chip-wrap + p { margin-top: 14px; }

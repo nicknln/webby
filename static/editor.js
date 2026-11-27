@@ -352,7 +352,7 @@ function linesSlot(sec, k, kind, placeholder) {
 }
 
 // A link attached to a title: a small chip that turns into an input when clicked.
-function linkChip(path, titleEl, emptyLabel = 'Add thread link') {
+function linkChip(path, titleEl, emptyLabel = 'Add the link to the thread') {
   const editable = EDIT;
   const wrap = el('div', { class: 'chip-wrap' });
   const draw = () => {
@@ -382,7 +382,7 @@ function linkChip(path, titleEl, emptyLabel = 'Add thread link') {
         inp.focus();
         inp.select();
       },
-    }, el('span', {}, url ? `Link: ${url.replace(/^https?:\/\//, '')}` : `+ ${emptyLabel}`)));
+    }, el('span', {}, url ? `Change link · ${url.replace(/^https?:\/\/(www\.)?/, '')}` : `+ ${emptyLabel}`)));
   };
   draw();
   return wrap;
@@ -520,18 +520,25 @@ function linkInput(path, placeholder) {
 function statePill(k) {
   if (PART) return null;
   const st = sectionState(k);
-  const label = { done: '✓ Done · edit', current: 'Working on this', skipped: 'Skipped · include', upcoming: hasContent(ed[k]) ? 'Not ticked yet · open' : null }[st];
+  const label = { done: '✓ Done · edit', current: null, skipped: 'Skipped · include', upcoming: hasContent(ed[k]) ? 'Not ticked yet · open' : null }[st];
   if (!label || active === 'review') return null;
   return el('button', { class: `state-pill ${st}`, type: 'button', onclick: () => st !== 'current' && openStep(k) }, label);
 }
 
+// A small text box straight after "by @", sized to the name.
+function authorInput(path, value) {
+  const inp = el('input', { type: 'text', class: 'author-box', 'data-path': path, value: String(value || '').replace(/^@/, ''),
+    placeholder: 'username', 'aria-label': 'Written by (community username)', spellcheck: 'false' });
+  const fit = () => { inp.size = Math.max(9, inp.value.length + 1); };
+  fit();
+  inp.addEventListener('input', () => { setPath(ed, path, inp.value.replace(/^@/, '').trim()); fit(); changed(); });
+  inp.addEventListener('change', () => renderAll());   // e.g. the giffgaffiversary closing line names the author
+  return inp;
+}
+
 function byLine(k) {
   const author = ed[k]?.author || META.authors[k] || '';
-  if (EDIT) {
-    const slot = textSlot(`${k}.author`, 'username', { cls: 'inline-slot', tag: 'span', strip: '@' });
-    slot.addEventListener('blur', () => renderAll());   // e.g. the giffgaffiversary closing line names the author
-    return el('h4', {}, el('em', {}, 'by @', slot));
-  }
+  if (EDIT) return el('h4', { class: 'by-line' }, el('em', {}, 'by @'), authorInput(`${k}.author`, author));
   return fixed('h4', {}, el('em', {}, 'by ', el('a', { href: profile(author), target: '_blank', rel: 'noopener' }, '@' + author)));
 }
 
@@ -561,7 +568,7 @@ function renderSection(s) {
       box.append(itemCard(k, 'stories', i, t, linkChip(`happenings.stories.${i}.link`, t),
         mdSlot(`happenings.stories.${i}.quote`, 'Paste the post here, straight from the community or Google Docs', { tag: 'blockquote' })));
     });
-    if (EDIT) box.append(addButton(k, 'stories', '+ Add a story', {}));
+    if (EDIT) box.append(addButton(k, 'stories', '+ Add another story', {}));
     if (EDIT || (d.buzzing || []).length) {
       box.append(fixed('p', {}, el('strong', {}, 'See what’s been buzzing on our Community this week:')),
                  linesSlot(k, 'buzzing', 'links', 'Paste links to this week’s busy threads, one per line. Each title is worked out from its link, and you can click it to edit.'));
@@ -579,7 +586,7 @@ function renderSection(s) {
         textSlot(`say_hello.members.${i}.greeting`, 'Greeting, e.g. Hiya and welcome to the community @username', { cls: 'greeting' }),
         mdSlot(`say_hello.members.${i}.quote`, 'Paste their post here', { tag: 'blockquote' })));
     });
-    if (EDIT) box.append(addButton(k, 'members', '+ Add a new member', {}));
+    if (EDIT) box.append(addButton(k, 'members', '+ Add another new member', {}));
     box.append(mdSlot('say_hello.outro', '', { defaultText: META.defaults.say_hello_outro }));
   }
 
@@ -593,7 +600,7 @@ function renderSection(s) {
         textSlot(`giffgaffiversary.posts.${i}.greeting`, 'Greeting, e.g. Congratulations @username!', { cls: 'greeting' }),
         mdSlot(`giffgaffiversary.posts.${i}.quote`, 'Paste their post here', { tag: 'blockquote' })));
     });
-    if (EDIT) box.append(addButton(k, 'posts', '+ Add an anniversary', {}));
+    if (EDIT) box.append(addButton(k, 'posts', '+ Add another anniversary', {}));
     const author = d.author || META.authors.giffgaffiversary;
     box.append(fixed('p', {}, el('strong', {}, `If it’s YOUR giffgaffiversary, please let the team know by sending a private message to `,
       el('a', { class: 'mention', href: profile(author), target: '_blank', rel: 'noopener' }, '@' + author))));
@@ -613,10 +620,10 @@ function renderSection(s) {
       box.append(fixed('p', {}, el('strong', {}, 'See what fellow members are saying:')),
                  linesSlot(k, 'comments', 'comments', 'Paste comments, one per line:  “comment” — @username'));
     }
-    const imgs = linesSlot(k, 'images', 'images', 'Paste the photo’s image address (right-click the photo → Copy image address)');
-    if (imgs) box.append(imgs);
-    const outro = mdSlot('photo_of_the_week.outro', 'Closing paragraph');
-    if (outro) box.append(outro);
+    const imgs = linesSlot(k, 'images', 'images', 'Right-click the photo on the community, choose “Copy image address”, and paste it here');
+    if (imgs) box.append(EDIT ? el('p', { class: 'slot-label' }, 'The photo') : null, imgs);
+    const outro = mdSlot('photo_of_the_week.outro', 'A few words to finish the section');
+    if (outro) box.append(EDIT ? el('p', { class: 'slot-label' }, 'Closing words (optional)') : null, outro);
   }
 
   if (EDIT) box.append(actionsBar(k));
@@ -635,10 +642,10 @@ function renderExtras() {
     const box = el('div', { class: 'item extra' });
     if (EDIT) box.append(itemTools('sections', i, list));
     const title = textSlot(`sections.${i}.title`, 'Section title, e.g. Tech News', { cls: 'inline-slot', tag: 'span' });
-    const author = textSlot(`sections.${i}.author`, 'username', { cls: 'inline-slot', tag: 'span', strip: '@' });
     box.append(fixed('hr', {}), el('h3', {}, title || '(untitled section)'));
-    if (author) box.append(el('h4', {}, el('em', {}, 'by @', author)));
-    if (EDIT) box.append(linkChip(`sections.${i}.image`, null, 'Add a header image address (optional)'));
+    if (EDIT) box.append(el('h4', { class: 'by-line' }, el('em', {}, 'by @'), authorInput(`sections.${i}.author`, sec.author)));
+    else if (sec.author) box.append(fixed('h4', {}, el('em', {}, 'by ', el('a', { href: profile(String(sec.author).replace(/^@/, '')), target: '_blank', rel: 'noopener' }, '@' + String(sec.author).replace(/^@/, '')))));
+    if (EDIT) box.append(linkChip(`sections.${i}.image`, null, 'Add a picture at the top (optional)'));
     if (sec.image) box.append(fixed('p', {}, el('img', { src: sec.image, alt: '' })));
     const body = mdSlot(`sections.${i}.body`, 'Paste or write the section here');
     if (body) box.append(body);
@@ -668,19 +675,27 @@ function addSectionPlaceholder(label, jump = false) {
   } }, el('span', { class: 'plus' }, '+'), el('span', {}, label), el('small', {}, 'Goes after Photo of the Week, with its own title, author and body'));
 }
 
+const ITEM_LABELS = { stories: 'Story', members: 'New member', posts: 'Anniversary', sections: 'Section' };
+
 function itemCard(k, listKey, i, ...kids) {
   const card = el('div', { class: 'item' });
-  if (EDIT) card.append(itemTools(`${k}.${listKey}`, i, ed[k][listKey]));
+  if (EDIT) card.append(itemTools(listKey, i, ed[k][listKey]));
   card.append(...kids.filter(Boolean));
   return card;
 }
 
-function itemTools(path, i, list) {
-  const btn = (label, title, fn, disabled) => el('button', { type: 'button', title, disabled, onclick: () => { fn(); changed(); renderAll(); } }, label);
-  return el('div', { class: 'item-tools' },
-    btn('↑', 'Move up', () => list.splice(i - 1, 0, list.splice(i, 1)[0]), i === 0),
-    btn('↓', 'Move down', () => list.splice(i + 1, 0, list.splice(i, 1)[0]), i === list.length - 1),
-    btn('✕', 'Remove', () => { if (!hasContent(list[i]) || confirm('Remove this item?')) list.splice(i, 1); }));
+// "Story 2" heading with plain Move up / Move down / Remove buttons.
+function itemTools(listKey, i, list) {
+  const name = ITEM_LABELS[listKey] || 'Item';
+  const btn = (label, fn, disabled) => el('button', { type: 'button', class: 'item-btn', disabled,
+    onclick: () => { fn(); changed(); renderAll(); } }, label);
+  const tools = el('div', { class: 'item-tools' });
+  if (list.length > 1) {
+    tools.append(btn('Move up', () => list.splice(i - 1, 0, list.splice(i, 1)[0]), i === 0),
+                 btn('Move down', () => list.splice(i + 1, 0, list.splice(i, 1)[0]), i === list.length - 1));
+  }
+  tools.append(btn('Remove', () => { if (!hasContent(list[i]) || confirm(`Remove ${name.toLowerCase()} ${i + 1}?`)) list.splice(i, 1); }));
+  return el('div', { class: 'item-head' }, el('span', { class: 'item-name' }, `${name} ${i + 1}`), tools);
 }
 
 function addButton(k, listKey, label, blank) {
