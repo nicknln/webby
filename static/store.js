@@ -12,7 +12,6 @@
     draft: d => `gaff.draft.${d}`,
     edition: d => `gaff.edition.${d}`,
     backups: d => `gaff.backups.${d}`,
-    latest: 'gaff.latest',
   };
 
   /* ---------------- storage (falls back to memory if the browser blocks it) ---------------- */
@@ -80,7 +79,6 @@
       }
     }
     setItem(K.draft(name), next);
-    setItem(K.latest, name);
     return 'this browser';
   }
 
@@ -128,12 +126,17 @@
     throw new G.EditionError(`Nothing saved for ${name}`);
   }
 
+  // The gaff being made now: the next Friday (today, if it's a Friday) that hasn't been built yet.
+  function currentFriday() {
+    let t = G.nextFriday(G.todayUTC());
+    while (getItem(K.edition(G.isoDate(t))) != null) t += 7 * G.DAY;
+    return G.isoDate(t);
+  }
+
+  // What the editor opens on: this week's draft, or a fresh one for this week's Friday.
   function latest() {
-    const name = getItem(K.latest);
-    const u = name && readJSON(K.draft(name), null);
-    if (u) return u;
-    const all = dates('gaff.draft.');
-    return all.length ? readJSON(K.draft(all[0]), null) : scaffold();
+    const d = currentFriday();
+    return readJSON(K.draft(d), null) || scaffold(d);
   }
 
   function build(ui) {

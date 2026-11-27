@@ -65,8 +65,7 @@ select { border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; ba
 .brand { display: flex; align-items: baseline; gap: 8px; }
 .logo { font-weight: 700; font-size: 15px; }
 .brand-sub { color: var(--muted); font-size: 13px; }
-.edition-title { display: flex; align-items: center; gap: 6px; font-weight: 600; flex: 1; min-width: 200px; }
-.top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 .save-status { color: var(--muted); font-size: 12px; min-width: 80px; text-align: right; }
 
 /* Buttons that only appear in one mode */
@@ -134,6 +133,10 @@ body[data-part] .editor-only { display: none !important; }
   .studio:not(.rail-open) .rail h2, .studio:not(.rail-open) #rail-copy { writing-mode: horizontal-tb; transform: none; }
   .rail { max-height: 45vh; }
 }
+
+/* The thread's title above the post, like on the community */
+.page-title { max-width: 720px; margin: 0 auto 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.page-title h1 { margin: 0; font-size: 24px; line-height: 1.25; font-weight: 700; color: var(--ink); }
 
 /* ---------- Review & build ---------- */
 #review { max-width: 720px; margin: 0 auto; }
@@ -238,15 +241,17 @@ body[data-part] .editor-only { display: none !important; }
 }
 .post .slot-hint::before { content: "\26A0\FE0E  "; }
 
-/* The thread link: a plain text link under the title */
-.post .chip-wrap { margin: 2px 0 10px; }
+/* The thread link under the title: "Link: community… [Change link]", or "[+ Add the link to the thread]" */
+.post .chip-wrap { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; font: 13px var(--font); color: #5f5f5a; min-width: 0; }
 .post .chip-wrap + .fixed, .post .chip-wrap + p { margin-top: 14px; }
+.post .link-label { flex: none; }
+.post .link-url { color: #5f5f5a; font-weight: 400; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.post .link-url:hover { text-decoration: underline; }
 .post .link-chip {
-  display: inline-flex; max-width: 100%; border: 0; background: none; padding: 2px 0; cursor: pointer;
-  font: 14px var(--font); color: #333; text-decoration: underline; text-underline-offset: 3px;
+  flex: none; font: 13px var(--font); color: #1d1d1b; background: #fff;
+  border: 1px solid #b5b5b0; border-radius: 4px; padding: 4px 10px; cursor: pointer;
 }
-.post .link-chip:hover { color: #000; }
-.post .link-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.post .link-chip:hover { border-color: #333; }
 .post .link-input { font: 14px var(--font); width: 100%; max-width: 560px; padding: 8px 10px; border: 1px solid #333; border-radius: 4px; }
 
 /* ---------- stories, members, anniversaries ---------- */
@@ -309,8 +314,6 @@ body[data-part] .editor-only { display: none !important; }
 .post .q input.short { width: 7em; }
 .post .q input.link-box { width: 100%; max-width: 560px; }
 .post .q input:focus { outline: 2px solid #333; outline-offset: 1px; border-color: #333; }
-.post .q .slot.boxed[contenteditable] { outline-color: #b5b5b0; padding: 9px 11px; min-height: 42px; max-width: 560px; font-size: 15px; }
-.post .q .slot.boxed[contenteditable]:focus { outline: 2px solid #333; }
 .post .q .slot-hint { margin: 8px 0 0; }
 
 /* ======================================================================

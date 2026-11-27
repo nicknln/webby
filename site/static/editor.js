@@ -415,9 +415,7 @@ function linkChip(path, titleEl, emptyLabel = 'Add the link to the thread') {
     titleEl?.classList.toggle('linked', !!url);
     wrap.innerHTML = '';
     if (!editable) return;
-    wrap.append(el('button', {
-      class: `link-chip ${url ? '' : 'empty'}`, type: 'button', 'data-path': path, title: url || emptyLabel,
-      onclick: () => {
+    const edit = () => {
         const inp = el('input', { class: 'link-input', type: 'url', placeholder: 'Paste the link…', value: url });
         const save = () => { setPath(ed, path, inp.value.trim()); draw(); changed(); };
         inp.addEventListener('blur', save);
@@ -436,8 +434,17 @@ function linkChip(path, titleEl, emptyLabel = 'Add the link to the thread') {
         wrap.replaceChildren(inp);
         inp.focus();
         inp.select();
-      },
-    }, el('span', {}, url ? `Change link · ${url.replace(/^https?:\/\/(www\.)?/, '')}` : `+ ${emptyLabel}`)));
+    };
+    // A clear button: "+ Add the link to the thread", or "Link: community… [Change link]".
+    const button = el('button', { class: `link-chip ${url ? '' : 'empty'}`, type: 'button', 'data-path': path, onclick: edit },
+      url ? 'Change link' : `+ ${emptyLabel}`);
+    if (url) {
+      wrap.append(el('span', { class: 'link-label' }, 'Link:'),
+        el('a', { class: 'link-url', href: url, target: '_blank', rel: 'noopener', title: url }, url.replace(/^https?:\/\/(www\.)?/, '')),
+        button);
+    } else {
+      wrap.append(button);
+    }
   };
   draw();
   return wrap;
@@ -523,16 +530,11 @@ function renderCanvas() {
           el('input', { type: 'text', inputmode: 'numeric', class: 'short', placeholder: autoIssue === '?' ? '' : autoIssue,
             value: ed.issue || '', oninput: e => { ed.issue = e.target.value.trim(); changed(); } }),
           el('p', { class: 'q-help after' }, 'Worked out for you. Only change it if it’s wrong.')))),
-      question('Anything to say under the date? (optional)', 'Most weeks this is left empty.',
-        textSlot('headline', 'For example: Happy 700th edition of The gaff!', { cls: 'boxed' })),
       question('Link to last week’s gaff', 'Open last week’s gaff on the community, copy the web address from the top of your browser, and paste it here.',
         linkInput('previous_edition', 'Paste the link here')),
       question('Link to this gaff, once it’s posted (you can add this later)', 'Next week’s gaff uses it for its “Previous Edition” link.',
         linkInput('posted_url', 'Paste the link here after posting'))));
     head.append(actionsBar('header'));
-  } else {
-    const headline = textSlot('headline', '');
-    if (headline) head.append(headline);
   }
   c.append(head);
 
@@ -1206,6 +1208,9 @@ function renderRail() {
 }
 
 async function refresh() {
+  // The "anything to say under the date" line was removed; drop any left in older drafts
+  // so it can't end up in the gaff unseen.
+  if ('headline' in ed) { delete ed.headline; changed(); }
   try {
     lastRender = await api('/api/render', ed);
   } catch (err) {
@@ -1427,7 +1432,7 @@ async function init() {
   $('#open-select').onchange = e => { if (e.target.value) openSaved(e.target.value); e.target.value = ''; };
   $('#new-btn').onclick = newEdition;
   $('#review-btn').onclick = () => goTo('review');
-  $('#copy-title').onclick = e => copy(lastRender?.title || '', e.target, '✓');
+  $('#copy-title').onclick = e => copy(lastRender?.title || '', e.target, 'Copied');
   $('#rail-toggle').onclick = () => setRail(!$('#studio').classList.contains('rail-open'));
   $('#rail-heading').onclick = () => { if (!$('#studio').classList.contains('rail-open')) setRail(true); };
   $('#rail-copy').onclick = e => copy(lastRender?.markdown || '', e.target, '✓');

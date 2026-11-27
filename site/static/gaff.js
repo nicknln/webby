@@ -118,7 +118,8 @@
     '4g': '4G', '5g': '5G', tv: 'TV', iphone: 'iPhone', ios: 'iOS', pac: 'PAC',
     stac: 'STAC', vpn: 'VPN', nhs: 'NHS', dvla: 'DVLA', hmrc: 'HMRC', gb: 'GB',
   };
-  const LINK_WORD_VALUES = new Set(Object.values(LINK_WORDS));
+  // Kept lower case in the middle of a title built from a link (same as gaff.py).
+  const SMALL_WORDS = new Set(['a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'in', 'nor', 'of', 'on', 'or', 'per', 'the', 'to', 'vs', 'via']);
 
   // A readable title from a thread link, for when only the link was given.
   function titleFromLink(url) {
@@ -134,12 +135,16 @@
     try { decoded = decodeURIComponent(last); } catch { /* leave as-is */ }
     let words = decoded.split(/[-_+]+/).filter(Boolean);
     if (!words.length || (words.length === 1 && /\d/.test(words[0]) && /[A-Za-z]/.test(words[0]) && !has(LINK_WORDS, words[0].toLowerCase()))) return host;
-    words = words.map(w => (has(LINK_WORDS, w.toLowerCase()) ? LINK_WORDS[w.toLowerCase()] : w.toLowerCase()));
-    if (!LINK_WORD_VALUES.has(words[0])) {
-      const chars = Array.from(words[0]);
-      words[0] = (chars[0] || '').toUpperCase() + chars.slice(1).join('');
-    }
-    return words.join(' ');
+    // Links are all lower case, so guess the capitals: thread titles are nearly always in
+    // title case ("October 2026 Payback Calculations"), with small words lower case in the middle.
+    const end = words.length - 1;
+    return words.map((w, i) => {
+      w = w.toLowerCase();
+      if (has(LINK_WORDS, w)) return LINK_WORDS[w];
+      if (i > 0 && i < end && SMALL_WORDS.has(w)) return w;
+      const chars = Array.from(w);
+      return (chars[0] || '').toUpperCase() + chars.slice(1).join('');
+    }).join(' ');
   }
 
   // The item's title, or one built from its link if it has none (or it's just the link).

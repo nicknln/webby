@@ -4,15 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The gaff editor</title>
-<link rel="stylesheet" href="static/style.css?v=716e9281f2">
+<link rel="stylesheet" href="static/style.css?v=d1ac26e61f">
 </head>
 <body>
 <header class="topbar">
   <div class="brand"><span class="logo">the gaff</span><span class="brand-sub">editor</span></div>
-  <div class="edition-title">
-    <span id="thread-title">The gaff</span>
-    <button class="icon-btn" id="copy-title" title="Copy thread title" aria-label="Copy thread title">⧉</button>
-  </div>
   <div class="top-actions">
     <label class="open-label editor-only">
       <span class="sr-only">Open a draft or edition</span>
@@ -32,6 +28,11 @@
 
 <main class="studio" id="studio">
   <div class="canvas-scroll" id="scroll">
+    <!-- The thread's title, shown above the post like on the community -->
+    <div class="page-title">
+      <h1 id="thread-title">The gaff</h1>
+      <button class="btn small" id="copy-title" title="Copy the title, to paste as the thread title when you post">Copy title</button>
+    </div>
     <div id="review"></div>
     <article class="post editing" id="canvas" aria-label="The post – click the dashed boxes to type or paste"></article>
   </div>
@@ -51,8 +52,8 @@
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script src="static/md.js?v=512c4dd237"></script>
-<script src="static/gaff.js?v=5ef4375bb8"></script>
-<script src="static/store.js?v=6207f3c7a5"></script>
-<script src="static/editor.js?v=01590c4e12"></script>
+<script src="static/gaff.js?v=ddfb5bc92a"></script>
+<script src="static/store.js?v=cc41861fce"></script>
+<script src="static/editor.js?v=c30b9f5ac8"></script>
 </body>
 </html>
