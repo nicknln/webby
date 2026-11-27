@@ -513,3 +513,24 @@ body[data-part] .editor-only { display: none !important; }
 .post .slot-label { font: 600 14px system-ui, -apple-system, "Segoe UI", sans-serif; color: #1d1d1b; margin: 18px 0 4px; }
 .post .lines-slot[contenteditable] { margin: 6px 0 14px; }
 .post .chip-wrap + .fixed, .post .chip-wrap + p { margin-top: 14px; }
+
+/* Section status on the heading line: "✓ Done [Edit]" */
+.post .sec-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.post .sec-title-row > h3, .post .sec-title-row > p { margin-right: auto; }
+.post .sec-status { display: flex; align-items: center; gap: 10px; font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; color: #5f5f5a; white-space: nowrap; }
+.post .sec-status.done .sec-status-text { color: #1d1d1b; font-weight: 600; }
+.post .status-btn {
+  font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; color: #1d1d1b; background: #fff;
+  border: 1px solid #b5b5b0; border-radius: 4px; padding: 4px 12px; cursor: pointer;
+}
+.post .status-btn:hover { border-color: #333; }
+.post .extras-label { font: 600 13px system-ui, -apple-system, "Segoe UI", sans-serif; color: #5f5f5a; text-transform: uppercase; letter-spacing: .04em; margin: 14px auto 6px 0; }
+/* Not started / skipped: grey the heading, keep the button clear */
+.sec.upcoming, .sec.skipped { opacity: 1; }
+.sec.upcoming h3, .sec.upcoming h4, .sec.skipped h3, .sec.skipped h4 { color: #9a9a95; }
+.sec.upcoming h4 a, .sec.skipped h4 a { color: inherit; }
+
+/* Quotes in finished sections: a light grey box with a line on the left */
+.post blockquote:not([contenteditable]) {
+  background: #f4f4f2; border-left: 3px solid #cfcfca; border-radius: 0 4px 4px 0; padding: 10px 14px; margin: 6px 0 16px;
+}

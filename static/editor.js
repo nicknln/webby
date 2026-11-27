@@ -116,7 +116,11 @@ const LINES = {
       if (/^https?:\/\/\S+$/.test(s)) return named('', s);
       return s ? { title: s } : null;
     },
-    format: b => `- ${b.link ? `[${b.title || b.link}](${b.link})` : b.title || ''}`,
+    format: b => {
+      if (!b.link) return `- ${b.title || ''}`;
+      const title = b.title && b.title.trim() !== b.link && !/^https?:\/\//.test(b.title.trim()) ? b.title : Gaff.titleFromLink(b.link);
+      return `- [${title}](${b.link})`;
+    },
   },
   comments: {
     parse(line) {
@@ -454,8 +458,9 @@ function renderCanvas() {
   // Header
   EDIT = active === 'header';
   const head = el('section', { class: `sec ${sectionState('header')}`, id: 'sec-header' });
-  head.append(fixed('p', {}, el('img', { src: META.images.banner, alt: '' })),
-              fixed('p', { id: 'date-line' }, el('strong', {}, dateLine)));
+  head.append(fixed('p', {}, el('img', { src: META.images.banner, alt: '' })));
+  const dateP = fixed('p', { id: 'date-line' }, el('strong', {}, dateLine));
+  head.append(EDIT ? dateP : titleRow(dateP, statePill('header')));
   if (EDIT) {
     // The header step is a few plain questions, each with a short explanation.
     const autoIssue = (dateLine.match(/Issue #(\S+)/) || [])[1] || '';
@@ -477,7 +482,6 @@ function renderCanvas() {
   } else {
     const headline = textSlot('headline', '');
     if (headline) head.append(headline);
-    head.append(statePill('header'));
   }
   c.append(head);
 
@@ -517,13 +521,23 @@ function linkInput(path, placeholder) {
   return inp;
 }
 
+// Where a section stands, shown on its heading line: "✓ Done [Edit]", "Skipped this week [Include it]"…
 function statePill(k) {
-  if (PART) return null;
+  if (PART || active === 'review') return null;
   const st = sectionState(k);
-  const label = { done: '✓ Done · edit', current: null, skipped: 'Skipped · include', upcoming: hasContent(ed[k]) ? 'Not ticked yet · open' : null }[st];
-  if (!label || active === 'review') return null;
-  return el('button', { class: `state-pill ${st}`, type: 'button', onclick: () => st !== 'current' && openStep(k) }, label);
+  const filled = k === 'header' || (k === 'extras' ? (ed.sections || []).some(hasContent) : hasContent(ed[k]));
+  const cfg = {
+    done: ['✓ Done', 'Edit'],
+    skipped: ['Skipped this week', 'Include it'],
+    upcoming: filled ? ['Not ticked yet', 'Open'] : ['Not started yet', 'Start it now'],
+  }[st];
+  if (!cfg) return null;
+  return el('div', { class: `sec-status ${st}` },
+    el('span', { class: 'sec-status-text' }, cfg[0]),
+    el('button', { type: 'button', class: 'status-btn', onclick: () => openStep(k) }, cfg[1]));
 }
+
+const titleRow = (heading, status) => el('div', { class: 'sec-title-row' }, heading, status);
 
 // A small text box straight after "by @", sized to the name.
 function authorInput(path, value) {
@@ -550,16 +564,11 @@ function renderSection(s) {
   EDIT = st === 'current';
   // An open section always shows at least one empty item, so its placeholders are visible straight away.
   if (EDIT && s.list && !(d[s.list] || []).length) d[s.list] = [{}];
-  const box = el('section', { class: `sec ${st}`, id: `sec-${k}` }, fixed('hr', {}), fixed('h3', {}, d.title || s.title), byLine(k), statePill(k), fromNote(k));
+  const box = el('section', { class: `sec ${st}`, id: `sec-${k}` }, fixed('hr', {}),
+    titleRow(fixed('h3', {}, d.title || s.title), statePill(k)), byLine(k), fromNote(k));
 
-  if (st === 'skipped') {
-    box.append(el('p', { class: 'later' }, 'Not in this week’s gaff. ', active !== 'review' && el('button', { type: 'button', onclick: () => openStep(k) }, 'Include it')));
-    return box;
-  }
-  if (st === 'upcoming' && !hasContent(d)) {
-    box.append(el('p', { class: 'later' }, 'Not started yet. ', el('button', { type: 'button', onclick: () => openStep(k) }, 'Start it now')));
-    return box;
-  }
+  // Skipped, or not started: just the heading and its status ("Skipped this week [Include it]").
+  if (st === 'skipped' || (st === 'upcoming' && !hasContent(d))) return box;
 
   if (k === 'happenings') {
     (d.stories ||= []).forEach((it, i) => {
@@ -634,9 +643,12 @@ function renderExtras() {
   const st = sectionState('extras');
   EDIT = st === 'current';
   const wrap = el('div', { class: `sec extras-wrap ${st}`, id: 'sec-extras' });
+  const list = (ed.sections ||= []);
+  if (!EDIT && list.some(hasContent) && active !== 'review') {
+    wrap.append(titleRow(el('span', { class: 'extras-label' }, 'Extra sections'), statePill('extras')));
+  }
   const note = fromNote('extras');
   if (note) wrap.append(note);
-  const list = (ed.sections ||= []);
   list.forEach((sec, i) => {
     if (!EDIT && !hasContent(sec)) return;
     const box = el('div', { class: 'item extra' });
@@ -657,7 +669,6 @@ function renderExtras() {
   } else if (active !== 'review') {
     // Placeholder visible from any step: jump to Extras and add one.
     wrap.append(addSectionPlaceholder(list.length ? 'Add another section' : 'Add a section here (e.g. Tech News)', true));
-    if (list.some(hasContent)) wrap.append(statePill('extras'));
   }
   return wrap;
 }
