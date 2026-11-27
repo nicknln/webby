@@ -416,3 +416,38 @@ body[data-part] .editor-only { display: none !important; }
 .part-error { color: var(--ink); border-left: 2px solid #333; padding: 2px 8px; font-size: 13px; }
 .dialog-body h4 { margin: 4px 0 0; font-size: 14px; }
 .dialog-body hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; width: 100%; }
+
+/* Header step: plain questions with room to breathe */
+.questions { margin: 6px 0 4px; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.q { margin: 0 0 22px; }
+.q-row { display: flex; flex-wrap: wrap; gap: 0 28px; }
+.q-label { font-size: 15px; font-weight: 600; color: #1d1d1b; margin: 0 0 4px; }
+.post .q-help { font-size: 13px; line-height: 1.45; color: #5f5f5a; margin: 0 0 8px; max-width: 52ch; }
+.q input[type="date"], .q input[type="text"], .q input[type="url"] {
+  font: 15px system-ui, -apple-system, "Segoe UI", sans-serif; color: #1d1d1b; background: #fff;
+  border: 1px solid #b5b5b0; border-radius: 4px; padding: 9px 11px; min-height: 42px;
+}
+.q input.short { width: 7em; }
+.q input.link-box { width: 100%; max-width: 560px; }
+.q input:focus { outline: 2px solid #333; outline-offset: 1px; border-color: #333; }
+.q input.problem { outline: 2px solid #333; }
+.q .slot.boxed[contenteditable] {
+  outline: 1px solid #b5b5b0; outline-offset: 0; border-radius: 4px; background: #fff;
+  padding: 9px 11px; min-height: 42px; max-width: 560px; font-size: 15px;
+}
+.q .slot.boxed[contenteditable]:focus { outline: 2px solid #333; }
+.q .slot-hint { margin: 8px 0 0; }
+
+.post .q-help.after { margin: 6px 0 0; }
+
+/* Roomier boxes inside the sections (stories, members, anniversaries) */
+.post .text-slot[contenteditable] { padding: 7px 10px; margin: 8px 0 6px; min-height: 2.4em; }
+.post .inline-slot[contenteditable] { padding: 1px 6px; margin: 0 2px; min-height: 0; }
+.post .chip-wrap { margin: 8px 0 14px; }
+.post .link-chip { font-size: 13px; padding: 5px 12px; }
+.post blockquote.slot[contenteditable], .post .md-slot[contenteditable] { padding: 12px 14px; margin: 0 0 18px; }
+.post .item { padding: 16px 0 6px; }
+.post .lines-slot[contenteditable] { padding: 8px 10px; margin: 8px 0 14px; min-height: 2.6em; }
+.post .greeting { margin: 0 0 12px; }
+.post .avatar-pick { margin: 4px 0 10px; }
+.post .add-btn { margin: 4px 0 22px; padding: 8px 14px; font-size: 13px; }

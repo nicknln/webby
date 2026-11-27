@@ -105,13 +105,15 @@ async function copy(text, btn, msg = 'Copied') {
 
 const LINES = {
   links: {
+    // A bare link (or one whose text is just the address) gets a title built from the link.
     parse(line) {
       const s = line.replace(/^\s*[-*]\s+/, '').trim();
+      const named = (title, link) => ({ title: !title || title.trim() === link || /^https?:\/\//.test(title.trim()) ? Gaff.titleFromLink(link) : title, link });
       let m = s.match(/^\[(.+)\]\((\S+)\)$/);
-      if (m) return { title: m[1], link: m[2] };
+      if (m) return named(m[1], m[2]);
       m = s.match(/^(.+?)\s*\|\s*(https?:\/\/\S+)$/);
-      if (m) return { title: m[1], link: m[2] };
-      if (/^https?:\/\/\S+$/.test(s)) return { title: s, link: s };
+      if (m) return named(m[1], m[2]);
+      if (/^https?:\/\/\S+$/.test(s)) return named('', s);
       return s ? { title: s } : null;
     },
     format: b => `- ${b.link ? `[${b.title || b.link}](${b.link})` : b.title || ''}`,
@@ -137,16 +139,6 @@ const LINES = {
     format: u => `![](${u})`,
   },
 };
-
-function parseLines(kind, text) {
-  const items = [], bad = [];
-  text.split('\n').forEach((line, i) => {
-    if (!line.trim()) return;
-    const v = LINES[kind].parse(line);
-    if (v === undefined || v === null) bad.push(line.trim().slice(0, 40)); else items.push(v);
-  });
-  return { items, bad };
-}
 
 /* ------------------------------------------------------------------ */
 /* Steps, status and checks                                            */
@@ -199,7 +191,7 @@ function sectionProblems(k) {
   const probs = (lastRender?.warnings || []).filter(w => warningSection(w) === k).map(friendly);
   if (k === 'header') {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(ed.date || '')) probs.push('Set the edition date');
-    if (!(ed.previous_edition || '').trim()) probs.push('Add last week’s thread link');
+    if (!(ed.previous_edition || '').trim()) probs.push('Paste the link to last week’s gaff');
   }
   const s = STEP_BY[k];
   if (s?.list && !(ed[k]?.[s.list] || []).some(hasContent)) probs.push(PART ? `Add at least one ${s.item}` : `Add at least one ${s.item}, or skip this week`);
@@ -325,9 +317,15 @@ function linesSlot(sec, k, kind, placeholder) {
   }).join('\n');
   const show = () => { const t = currentText(); s.innerHTML = t ? mdToHtml(display(t)) : ''; };
   const sync = text => {
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean).join('\n');
-    const { items: parsed, bad } = parseLines(kind, lines);
-    setPath(ed, rawPath, lines);
+    // Keep each understood line in its tidied form (e.g. a bare link becomes "[Title](link)"),
+    // and anything not understood exactly as typed, so the box shows what will be used.
+    const parsed = [], bad = [], shown = [];
+    for (const line of text.split('\n').map(l => l.trim()).filter(Boolean)) {
+      const v = LINES[kind].parse(line);
+      if (v === undefined || v === null) { bad.push(line.slice(0, 40)); shown.push(line); }
+      else { parsed.push(v); shown.push(LINES[kind].format(v)); }
+    }
+    setPath(ed, rawPath, shown.join('\n'));
     setPath(ed, path, parsed);
     note.hidden = !bad.length;
     note.textContent = bad.length ? `Not understood: “${bad.join('”, “')}”. ${kind === 'comments' ? 'Use “comment” — @username' : kind === 'images' ? 'Paste the image address' : ''}` : '';
@@ -459,19 +457,26 @@ function renderCanvas() {
   head.append(fixed('p', {}, el('img', { src: META.images.banner, alt: '' })),
               fixed('p', { id: 'date-line' }, el('strong', {}, dateLine)));
   if (EDIT) {
-    head.append(el('div', { class: 'header-fields' },
-      el('label', {}, 'Edition date ', el('input', { type: 'date', value: ed.date || '', oninput: e => { ed.date = e.target.value; changed(); } })),
-      el('label', {}, 'Issue # ', el('input', { type: 'text', inputmode: 'numeric', placeholder: 'auto', size: '5', value: ed.issue || '', oninput: e => { ed.issue = e.target.value.trim(); changed(); } }))));
-  }
-  const headline = textSlot('headline', 'Headline under the date (optional), e.g. Happy 700th edition of The gaff!');
-  if (headline) head.append(headline);
-  if (EDIT) {
-    head.append(el('p', { class: 'slot-label' }, 'Last week’s thread (the “Previous Edition” link at the bottom)'),
-                linkChip('previous_edition', null, 'Paste last week’s thread link'),
-                el('p', { class: 'slot-label' }, 'This week’s thread, once posted (next week’s edition links back to it)'),
-                linkChip('posted_url', null, 'Paste after posting'));
+    // The header step is a few plain questions, each with a short explanation.
+    const autoIssue = (dateLine.match(/Issue #(\S+)/) || [])[1] || '';
+    head.append(el('div', { class: 'questions' },
+      el('div', { class: 'q-row' },
+        question('Which Friday is this gaff for?', null,
+          el('input', { type: 'date', value: ed.date || '', oninput: e => { ed.date = e.target.value; changed(); } })),
+        question('Issue number', null, el('div', {},
+          el('input', { type: 'text', inputmode: 'numeric', class: 'short', placeholder: autoIssue === '?' ? '' : autoIssue,
+            value: ed.issue || '', oninput: e => { ed.issue = e.target.value.trim(); changed(); } }),
+          el('p', { class: 'q-help after' }, 'Worked out for you. Only change it if it’s wrong.')))),
+      question('Anything to say under the date? (optional)', 'Most weeks this is left empty.',
+        textSlot('headline', 'For example: Happy 700th edition of The gaff!', { cls: 'boxed' })),
+      question('Link to last week’s gaff', 'Open last week’s gaff on the community, copy the web address from the top of your browser, and paste it here.',
+        linkInput('previous_edition', 'Paste the link here')),
+      question('Link to this gaff, once it’s posted (you can add this later)', 'Next week’s gaff uses it for its “Previous Edition” link.',
+        linkInput('posted_url', 'Paste the link here after posting'))));
     head.append(actionsBar('header'));
   } else {
+    const headline = textSlot('headline', '');
+    if (headline) head.append(headline);
     head.append(statePill('header'));
   }
   c.append(head);
@@ -487,6 +492,29 @@ function renderCanvas() {
   const prev = ed.previous_edition;
   c.append(fixed('hr', {}), fixed('h3', {}, 'Thanks for reading!'),
     fixed('p', {}, prev ? el('a', { href: prev, target: '_blank', rel: 'noopener' }, 'Previous Edition') : el('span', { class: 'missing' }, 'Previous Edition (link needed)'), ` | Next Edition (${next})`));
+}
+
+// A plain question: bold label, one line of help, then the box to fill in.
+function question(label, help, control) {
+  return el('div', { class: 'q' },
+    el('div', { class: 'q-label' }, label),
+    help && el('p', { class: 'q-help' }, help),
+    control);
+}
+
+// An always-visible box for a link (easier than a chip for one-off links like these).
+function linkInput(path, placeholder) {
+  const inp = el('input', { type: 'url', class: 'link-box', 'data-path': path, placeholder, value: String(getPath(ed, path) ?? '') });
+  inp.addEventListener('input', () => { setPath(ed, path, inp.value.trim()); changed(); });
+  inp.addEventListener('paste', e => {
+    // A link copied as rich text: keep just its address.
+    const h = e.clipboardData.getData('text/html');
+    const t = e.clipboardData.getData('text/plain').trim();
+    if (/^https?:\/\//.test(t) || !h) return;
+    const a = new DOMParser().parseFromString(h, 'text/html').querySelector('a[href]');
+    if (a) { e.preventDefault(); inp.value = absUrl(a.getAttribute('href')); inp.dispatchEvent(new Event('input')); }
+  });
+  return inp;
 }
 
 function statePill(k) {
@@ -536,7 +564,7 @@ function renderSection(s) {
     if (EDIT) box.append(addButton(k, 'stories', '+ Add a story', {}));
     if (EDIT || (d.buzzing || []).length) {
       box.append(fixed('p', {}, el('strong', {}, 'See what’s been buzzing on our Community this week:')),
-                 linesSlot(k, 'buzzing', 'links', 'Paste links to this week’s busy threads, one per line'));
+                 linesSlot(k, 'buzzing', 'links', 'Paste links to this week’s busy threads, one per line. Each title is worked out from its link, and you can click it to edit.'));
     }
   }
 
@@ -1014,6 +1042,10 @@ function showBlocked(k, probs, lead) {
   applyProblems();
   toast(`${lead}: ${probs.join(' · ')}`);
   let target = document.querySelector(`#sec-${k} .slot.problem, #sec-${k} .link-chip.problem`);
+  if (!target && k === 'header' && !(ed.previous_edition || '').trim()) {
+    target = document.querySelector('[data-path="previous_edition"]');
+    if (target) hint(target, 'Paste last week’s link here');
+  }
   if (!target) {
     // e.g. "Add at least one story": point at the first empty title box.
     const empty = sel => [...document.querySelectorAll(sel)].find(s => !s.textContent.trim());
@@ -1024,7 +1056,7 @@ function showBlocked(k, probs, lead) {
   }
   const box = target || document.getElementById(`problems-${k}`);
   box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  if (target?.isContentEditable) setTimeout(() => target.focus(), 350);
+  if (target && (target.isContentEditable || target.tagName === 'INPUT')) setTimeout(() => target.focus(), 350);
 }
 
 async function markDone(k) {

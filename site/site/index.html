@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The gaff editor</title>
+<link rel="stylesheet" href="static/style.css?v=7860bd8354">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">the gaff</span><span class="brand-sub">editor</span></div>
+  <div class="edition-title">
+    <span id="thread-title">The gaff</span>
+    <button class="icon-btn" id="copy-title" title="Copy thread title" aria-label="Copy thread title">⧉</button>
+  </div>
+  <div class="top-actions">
+    <label class="open-label editor-only">
+      <span class="sr-only">Open a draft or edition</span>
+      <select id="open-select"><option value="">Open…</option></select>
+    </label>
+    <button class="btn editor-only" id="new-btn">New edition</button>
+    <button class="btn editor-only" id="add-part" title="Add a part someone sent you (their file or link), or ask someone for theirs">Add a part</button>
+    <button class="btn browser-only editor-only" id="open-file" title="Open a draft file you saved earlier">Open file</button>
+    <button class="btn browser-only editor-only" id="save-file" title="Download this draft as a file, to keep a copy or move it to another computer">Save file</button>
+    <a class="btn server-only editor-only" id="form-view" href="/static/classic.html" title="The older form-based editor (same drafts)">Form view</a>
+    <span class="save-status" id="save-status" aria-live="polite"></span>
+    <button class="btn primary editor-only" id="review-btn">Review &amp; build</button>
+    <button class="btn primary contrib-only" id="send-part">Send my part</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs" role="tablist" aria-label="Steps"></nav>
+
+<main class="studio" id="studio">
+  <div class="canvas-scroll" id="scroll">
+    <div id="review"></div>
+    <article class="post editing" id="canvas" aria-label="The post – click the dashed boxes to type or paste"></article>
+  </div>
+  <aside class="rail" aria-label="Markdown">
+    <div class="pane-head">
+      <button class="icon-btn md-toggle" id="rail-toggle" aria-expanded="false" aria-controls="rail-md" title="Show the Markdown">«</button>
+      <h2 id="rail-heading">Markdown</h2>
+      <button class="btn small" id="rail-copy">Copy</button>
+    </div>
+    <div class="md-out" id="rail-md"></div>
+  </aside>
+</main>
+
+<dialog id="done-dialog">
+  <form method="dialog" class="dialog-body" id="done-body"></form>
+</dialog>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="static/md.js?v=7ccc064579"></script>
+<script src="static/gaff.js?v=5ef4375bb8"></script>
+<script src="static/store.js?v=3853bcebb0"></script>
+<script src="static/editor.js?v=453cb48414"></script>
+</body>
+</html>

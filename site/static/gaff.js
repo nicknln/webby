@@ -111,6 +111,45 @@
   const paragraphs = text => stripNewlines(str(text));
   const EMBEDDED_IMAGE = /!\[[^\]]*\]\(\s*(?:data|blob):[^)]*\)/;
 
+  // Words that keep a particular case when a title is built from a link (same as gaff.py).
+  const LINK_WORDS = {
+    giffgaff: 'giffgaff', esim: 'eSIM', esims: 'eSIMs', sim: 'SIM', sims: 'SIMs',
+    uk: 'UK', ai: 'AI', faq: 'FAQ', faqs: 'FAQs', ee: 'EE', o2: 'O2', bt: 'BT',
+    '4g': '4G', '5g': '5G', tv: 'TV', iphone: 'iPhone', ios: 'iOS', pac: 'PAC',
+    stac: 'STAC', vpn: 'VPN', nhs: 'NHS', dvla: 'DVLA', hmrc: 'HMRC', gb: 'GB',
+  };
+  const LINK_WORD_VALUES = new Set(Object.values(LINK_WORDS));
+
+  // A readable title from a thread link, for when only the link was given.
+  function titleFromLink(url) {
+    const m = /^https?:\/\/([^/?#]+)([^?#]*)/.exec(pyStrip(String(url)));
+    if (!m) return String(url);
+    const host = m[1].startsWith('www.') ? m[1].slice(4) : m[1];
+    const parts = m[2].split('/').filter(Boolean);
+    if (!parts.length) return host;
+    let last = parts[parts.length - 1];
+    if (/^\d+$/.test(last) && parts.length >= 2) last = parts[parts.length - 2];   // /d/<id>-<slug>/<post number>
+    last = last.replace(/^\d+-/, '');                                               // drop the discussion number
+    let decoded = last;
+    try { decoded = decodeURIComponent(last); } catch { /* leave as-is */ }
+    let words = decoded.split(/[-_+]+/).filter(Boolean);
+    if (!words.length || (words.length === 1 && /\d/.test(words[0]) && /[A-Za-z]/.test(words[0]) && !has(LINK_WORDS, words[0].toLowerCase()))) return host;
+    words = words.map(w => (has(LINK_WORDS, w.toLowerCase()) ? LINK_WORDS[w.toLowerCase()] : w.toLowerCase()));
+    if (!LINK_WORD_VALUES.has(words[0])) {
+      const chars = Array.from(words[0]);
+      words[0] = (chars[0] || '').toUpperCase() + chars.slice(1).join('');
+    }
+    return words.join(' ');
+  }
+
+  // The item's title, or one built from its link if it has none (or it's just the link).
+  function linkTitle(item) {
+    const title = item ? item.title : undefined;
+    const url = item ? item.link : undefined;
+    if (url && (!title || pyStrip(String(title)) === pyStrip(String(url)))) return titleFromLink(String(url));
+    return title;
+  }
+
   function unclosedBold(md) {
     const found = [];
     for (const line of splitlines(md)) {
@@ -163,7 +202,7 @@
         const buzzing = get(s, 'buzzing', []);
         if (buzzing.length) {
           blocks.push(bold('See what’s been buzzing on our Community this week:'));
-          blocks.push(buzzing.map((b, i) => `- ${link(need(b, 'title', `happenings.buzzing[${i + 1}]`), b.link)}`).join('\n'));
+          blocks.push(buzzing.map((b, i) => `- ${link(need({ ...b, title: linkTitle(b) }, 'title', `happenings.buzzing[${i + 1}]`), b.link)}`).join('\n'));
         }
         return blocks;
       },
@@ -308,7 +347,7 @@
   const api = {
     COMMUNITY, IMAGES, AVATARS, DEFAULT_AUTHORS, SAY_HELLO_INTRO, SAY_HELLO_OUTRO, SECTION_LABELS, SECTION_KEYS,
     EditionError, ordinalDate, issueNumber, parseDate, isoDate, todayUTC, nextFriday, DAY,
-    renderParts, joinParts, render, threadTitle, unclosedBold, fromUi, toUi, renderUi,
+    renderParts, joinParts, render, threadTitle, unclosedBold, fromUi, toUi, renderUi, titleFromLink, linkTitle,
   };
   root.Gaff = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
