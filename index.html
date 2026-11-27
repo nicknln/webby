@@ -14,16 +14,18 @@
     <button class="icon-btn" id="copy-title" title="Copy thread title" aria-label="Copy thread title">⧉</button>
   </div>
   <div class="top-actions">
-    <label class="open-label">
+    <label class="open-label editor-only">
       <span class="sr-only">Open a draft or edition</span>
       <select id="open-select"><option value="">Open…</option></select>
     </label>
-    <button class="btn" id="new-btn">New edition</button>
-    <button class="btn browser-only" id="open-file" title="Open a draft file you saved earlier">Open file</button>
-    <button class="btn browser-only" id="save-file" title="Download this draft as a file, to keep a copy or move it to another computer">Save file</button>
-    <a class="btn server-only" id="form-view" href="/static/classic.html" title="The older form-based editor (same drafts)">Form view</a>
+    <button class="btn editor-only" id="new-btn">New edition</button>
+    <button class="btn editor-only" id="add-part" title="Add a part someone sent you (their file or link), or ask someone for theirs">Add a part</button>
+    <button class="btn browser-only editor-only" id="open-file" title="Open a draft file you saved earlier">Open file</button>
+    <button class="btn browser-only editor-only" id="save-file" title="Download this draft as a file, to keep a copy or move it to another computer">Save file</button>
+    <a class="btn server-only editor-only" id="form-view" href="/static/classic.html" title="The older form-based editor (same drafts)">Form view</a>
     <span class="save-status" id="save-status" aria-live="polite"></span>
-    <button class="btn primary" id="review-btn">Review &amp; build</button>
+    <button class="btn primary editor-only" id="review-btn">Review &amp; build</button>
+    <button class="btn primary contrib-only" id="send-part">Send my part</button>
   </div>
 </header>
 
