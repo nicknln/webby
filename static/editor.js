@@ -202,7 +202,8 @@ function sectionProblems(k) {
     if (!(ed.previous_edition || '').trim()) probs.push('Add last week’s thread link');
   }
   const s = STEP_BY[k];
-  if (s?.list && !(ed[k]?.[s.list] || []).some(hasContent)) probs.push(`Add at least one ${s.item}, or skip this week`);
+  if (s?.list && !(ed[k]?.[s.list] || []).some(hasContent)) probs.push(PART ? `Add at least one ${s.item}` : `Add at least one ${s.item}, or skip this week`);
+  if (PART === 'extras' && k === 'extras' && !(ed.sections || []).some(hasContent)) probs.push('Add a section first');
   return probs;
 }
 
@@ -408,6 +409,7 @@ const fixed = (tag, props, ...kids) => el(tag, { ...props, class: `fixed ${props
 const profile = u => `${COMMUNITY}/u/${u}`;
 
 function sectionState(k) {
+  if (PART) return k === PART ? 'current' : 'hidden';
   if (active === 'review') return isSkipped(k) ? 'skipped' : 'done';
   if (k === active) return 'current';
   if (isSkipped(k)) return 'skipped';
@@ -417,6 +419,14 @@ function sectionState(k) {
 
 function renderAll({ scroll = false } = {}) {
   const y = $('#scroll').scrollTop;
+  if (PART) {
+    renderPartBar();
+    renderPartCanvas();
+    renderRail();
+    applyProblems();
+    if (!scroll) $('#scroll').scrollTop = y;
+    return;
+  }
   renderSteps();
   renderReview();
   renderCanvas();
@@ -480,6 +490,7 @@ function renderCanvas() {
 }
 
 function statePill(k) {
+  if (PART) return null;
   const st = sectionState(k);
   const label = { done: '✓ Done · edit', current: 'Working on this', skipped: 'Skipped · include', upcoming: hasContent(ed[k]) ? 'Not ticked yet · open' : null }[st];
   if (!label || active === 'review') return null;
@@ -504,7 +515,7 @@ function renderSection(s) {
   EDIT = st === 'current';
   // An open section always shows at least one empty item, so its placeholders are visible straight away.
   if (EDIT && s.list && !(d[s.list] || []).length) d[s.list] = [{}];
-  const box = el('section', { class: `sec ${st}`, id: `sec-${k}` }, fixed('hr', {}), fixed('h3', {}, d.title || s.title), byLine(k), statePill(k));
+  const box = el('section', { class: `sec ${st}`, id: `sec-${k}` }, fixed('hr', {}), fixed('h3', {}, d.title || s.title), byLine(k), statePill(k), fromNote(k));
 
   if (st === 'skipped') {
     box.append(el('p', { class: 'later' }, 'Not in this week’s gaff. ', active !== 'review' && el('button', { type: 'button', onclick: () => openStep(k) }, 'Include it')));
@@ -588,6 +599,8 @@ function renderExtras() {
   const st = sectionState('extras');
   EDIT = st === 'current';
   const wrap = el('div', { class: `sec extras-wrap ${st}`, id: 'sec-extras' });
+  const note = fromNote('extras');
+  if (note) wrap.append(note);
   const list = (ed.sections ||= []);
   list.forEach((sec, i) => {
     if (!EDIT && !hasContent(sec)) return;
@@ -617,7 +630,7 @@ function renderExtras() {
 function addSectionPlaceholder(label, jump = false) {
   return el('button', { class: 'add-section', type: 'button', onclick: () => {
     (ed.sections ||= []).push({ title: '', author: '', body: '' });
-    if (jump || active !== 'extras') { delete (ed._done ||= {}).extras; active = 'extras'; }
+    if (!PART && (jump || active !== 'extras')) { delete (ed._done ||= {}).extras; active = 'extras'; }
     changed();
     renderAll();
     const i = ed.sections.length - 1;
@@ -672,6 +685,10 @@ function avatarPicker(path, i) {
 function actionsBar(k) {
   const s = STEP_BY[k];
   const problems = el('div', { class: 'problems', id: `problems-${k}` });
+  if (PART) {
+    return el('div', { class: 'sec-actions' }, problems,
+      el('button', { class: 'btn primary', type: 'button', onclick: sendPart }, 'Send my part →'));
+  }
   return el('div', { class: 'sec-actions' }, problems,
     s.toggle && el('button', { class: 'btn', type: 'button', onclick: () => skip(k) }, 'Skip this week'),
     el('button', { class: 'btn primary', type: 'button', id: `mark-${k}`, onclick: () => markDone(k) }, markLabel(k)));
@@ -680,6 +697,242 @@ function actionsBar(k) {
 function markLabel(k) {
   if (k === 'extras' && !(ed.sections || []).some(hasContent)) return 'No extras – continue →';
   return `Mark ${STEP_BY[k].label} done & continue →`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Sending parts: a contributor writes one section and sends it to the */
+/* editor as a small file or link; the editor adds it to the edition.  */
+/* ------------------------------------------------------------------ */
+
+let PART = null;   // contributor mode: the one section being written (from ?part=...)
+const PART_KEYS = ['happenings', 'say_hello', 'giffgaffiversary', 'photo_of_the_week', 'extras'];
+const partStoreKey = k => `gaff.part.${k}`;
+const siteUrl = () => `${location.origin}${location.pathname}`;
+
+function fromNote(k) {
+  const f = ed._from?.[k];
+  if (!f || PART) return null;
+  const when = f.at ? new Date(f.at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+  return el('p', { class: 'from-note' }, `Sent by @${f.from || 'someone'}${when ? ` · ${when}` : ''}. Check it, then tick it off.`);
+}
+
+function loadPart() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(partStoreKey(PART)) || 'null'); } catch { /* storage unavailable */ }
+  if (saved && /^\d{4}-\d{2}-\d{2}$/.test(saved.date || '')) {
+    ed = saved;
+  } else {
+    ed = { date: Gaff.isoDate(Gaff.nextFriday(Gaff.todayUTC())) };
+    if (PART === 'extras') ed.sections = [];
+    else ed[PART] = { author: META.authors[PART] || '' };
+  }
+  active = PART;
+}
+
+function savePartLocally() {
+  try {
+    localStorage.setItem(partStoreKey(PART), JSON.stringify(ed));
+    $('#save-status').textContent = 'Saved in this browser ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    $('#save-status').textContent = 'Not saved (browser storage unavailable)';
+  }
+}
+
+function renderPartBar() {
+  const nav = $('#tabs');
+  nav.innerHTML = '';
+  const pick = el('select', { 'aria-label': 'Which part', onchange: e => switchPart(e.target.value) },
+    PART_KEYS.map(k => el('option', { value: k, selected: k === PART }, STEP_BY[k].label)));
+  const date = el('input', { type: 'date', value: ed.date || '', 'aria-label': 'Edition date',
+    oninput: e => { ed.date = e.target.value; changed(); } });
+  nav.append(el('div', { class: 'part-bar' },
+    el('span', {}, 'You’re writing '), pick, el('span', {}, ' for the gaff on '), date,
+    el('span', { class: 'muted' }, ' When it’s ready, click Send my part and send the file or link to the editor.'),
+    el('a', { href: siteUrl() }, 'Open the full editor')));
+}
+
+function renderPartCanvas() {
+  const c = $('#canvas');
+  c.innerHTML = '';
+  EDIT = false;
+  c.append(fixed('p', {}, el('img', { src: META.images.banner, alt: '' })),
+           fixed('p', { id: 'date-line' }, el('strong', {}, headerParts().dateLine)));
+  c.append(PART === 'extras' ? renderExtras() : renderSection(STEP_BY[PART]));
+}
+
+async function switchPart(k) {
+  PART = k;
+  history.replaceState(null, '', `${siteUrl()}?part=${k}`);
+  loadPart();
+  await refresh();
+  renderAll({ scroll: true });
+}
+
+function partAuthor() {
+  if (PART === 'extras') return (ed.sections || []).find(s => s.author)?.author || 'someone';
+  return ed[PART]?.author || META.authors[PART] || 'someone';
+}
+
+function partPayload() {
+  const data = PART === 'extras' ? { sections: (ed.sections || []).filter(hasContent) } : { ...ed[PART] };
+  delete data.enabled;
+  if (STEP_BY[PART]?.list) data[STEP_BY[PART].list] = (data[STEP_BY[PART].list] || []).filter(hasContent);
+  return { type: 'gaff-part', version: 1, section: PART, date: ed.date, from: String(partAuthor()).replace(/^@/, ''), created: new Date().toISOString(), data };
+}
+
+// Part links carry the part itself after #part=, compressed where the browser can.
+function b64url(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function unb64url(s) {
+  const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4));
+  return Uint8Array.from(bin, c => c.charCodeAt(0));
+}
+async function encodePart(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  if (typeof CompressionStream === 'undefined') return 'p' + b64url(bytes);
+  const out = await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer();
+  return 'z' + b64url(new Uint8Array(out));
+}
+async function decodePart(code) {
+  const bytes = unb64url(code.slice(1));
+  let data = bytes;
+  if (code[0] === 'z') data = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+  else if (code[0] !== 'p') throw new Error('That isn’t a gaff part link');
+  return JSON.parse(new TextDecoder().decode(data));
+}
+
+async function sendPart() {
+  attempted[PART] = true;
+  await refresh();
+  const probs = sectionProblems(PART);
+  if (probs.length) return showBlocked(PART, probs, 'Not sent yet');
+  const payload = partPayload();
+  const link = `${siteUrl()}#part=${await encodePart(payload)}`;
+  const label = STEP_BY[PART].label;
+  const dlg = $('#done-dialog');
+  const body = $('#done-body');
+  body.innerHTML = `<h3>Your ${esc(label)} is ready to send</h3>
+    <p>Send it to the editor in whichever way suits you. Your work stays saved in this browser, so you can change it and send it again.</p>
+    <ul>
+      <li><strong>Download the file</strong> and send it on Telegram or by email. This always works.</li>
+      <li><strong>Copy the link</strong> and paste it in a message. When the editor opens it, your part is added.${link.length > 4000 ? ` <em>This link is long (${link.length.toLocaleString()} characters), and some apps cut long messages, so the file is safer.</em>` : ''}</li>
+    </ul>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="part-download">Download file</button>
+      <button type="button" class="btn" id="part-copy">Copy link</button>
+      <button class="btn primary">Done</button>
+    </div>`;
+  $('#part-download').onclick = () => download(`gaff-part-${PART}-${ed.date}.json`, JSON.stringify(payload, null, 2), 'application/json');
+  $('#part-copy').onclick = e => copy(link, e.target, 'Link copied');
+  dlg.showModal();
+}
+
+/* ---- editor side ---- */
+
+function partSummary(p) {
+  const label = STEP_BY[p.section]?.label || p.section;
+  const list = STEP_BY[p.section]?.list;
+  let what = '';
+  if (p.section === 'extras') what = `${(p.data.sections || []).length} section(s)`;
+  else if (list) { const n = (p.data[list] || []).length; what = `${n} ${STEP_BY[p.section].item}${n === 1 ? '' : 's'}`; }
+  else if (p.section === 'photo_of_the_week') what = p.data.photo_title ? `“${p.data.photo_title}”` : 'photo';
+  return { label, what };
+}
+
+function validPart(p) {
+  return p && p.type === 'gaff-part' && PART_KEYS.includes(p.section) && p.data && typeof p.data === 'object';
+}
+
+function openAddPart(preloaded) {
+  const dlg = $('#done-dialog');
+  const body = $('#done-body');
+  const askButtons = PART_KEYS.map(k => `<button type="button" class="btn small" data-ask="${k}">${esc(STEP_BY[k].label)}</button>`).join(' ');
+  body.innerHTML = `<h3>Add someone’s part</h3>
+    <p>Choose the file they sent you, or paste the link they sent.</p>
+    <div class="dialog-actions" style="justify-content:flex-start">
+      <button type="button" class="btn" id="part-file">Choose their file…</button>
+    </div>
+    <div class="paste-link"><input type="url" id="part-link" placeholder="…or paste their link here"><button type="button" class="btn" id="part-link-go">Add</button></div>
+    <p class="part-error" id="part-error" hidden></p>
+    <hr>
+    <h4>Ask for a part</h4>
+    <p>Copy a link and send it to whoever writes that part. It opens the site with just their section.</p>
+    <p>${askButtons}</p>
+    <div class="dialog-actions"><button class="btn">Close</button></div>`;
+  const fail = msg => { const e = $('#part-error'); e.textContent = msg; e.hidden = false; };
+  $('#part-file').onclick = () => {
+    const input = el('input', { type: 'file', accept: '.json,application/json' });
+    input.addEventListener('change', async () => {
+      try { const p = JSON.parse(await input.files[0].text()); if (!validPart(p)) throw new Error(); confirmPart(p); }
+      catch { fail('That file isn’t a gaff part. Ask them to use “Send my part → Download file”.'); }
+    });
+    input.click();
+  };
+  $('#part-link-go').onclick = async () => {
+    const m = /#part=([A-Za-z0-9_-]+)/.exec($('#part-link').value.trim());
+    if (!m) return fail('That doesn’t look like a part link (it should contain “#part=”).');
+    try { const p = await decodePart(m[1]); if (!validPart(p)) throw new Error(); confirmPart(p); }
+    catch { fail('That link couldn’t be read. It may have been cut short. Ask them for the file instead.'); }
+  };
+  body.querySelectorAll('[data-ask]').forEach(b => (b.onclick = e => copy(`${siteUrl()}?part=${b.dataset.ask}`, e.target, 'Link copied')));
+  if (!dlg.open) dlg.showModal();
+  if (preloaded) confirmPart(preloaded);
+}
+
+function confirmPart(p) {
+  const body = $('#done-body');
+  const { label, what } = partSummary(p);
+  const k = p.section;
+  const existing = k === 'extras' ? (ed.sections || []).some(hasContent) : hasContent(ed[k]);
+  const otherDate = p.date && ed.date && p.date !== ed.date;
+  const fmt = d => { const t = Gaff.parseDate(d); return t === null ? d : Gaff.ordinalDate(t); };
+  body.innerHTML = `<h3>Add @${esc(p.from || 'someone')}’s ${esc(label)}?</h3>
+    <p>${esc(what)}, written for the gaff on ${esc(fmt(p.date) || 'an unknown date')}.</p>
+    ${otherDate ? `<p class="part-error">Your edition is for ${esc(fmt(ed.date))}, not ${esc(fmt(p.date))}. Check this is the right week.</p>` : ''}
+    ${existing ? `<p>You already have content in ${esc(label)}. Add theirs after what’s there, or replace it?</p>` : ''}
+    <div class="dialog-actions">
+      <button class="btn">Cancel</button>
+      ${existing ? '<button type="button" class="btn" id="part-replace">Replace</button><button type="button" class="btn primary" id="part-append">Add to what’s there</button>'
+                 : '<button type="button" class="btn primary" id="part-append">Add to this edition</button>'}
+    </div>`;
+  $('#part-append').onclick = () => { $('#done-dialog').close(); mergePart(p, 'append'); };
+  if (existing) $('#part-replace').onclick = () => { $('#done-dialog').close(); mergePart(p, 'replace'); };
+}
+
+function mergePart(p, how) {
+  const k = p.section;
+  const data = JSON.parse(JSON.stringify(p.data));
+  delete data.enabled;
+  if (k === 'extras') {
+    const incoming = (data.sections || []).filter(hasContent);
+    ed.sections = how === 'replace' ? incoming : [...(ed.sections || []).filter(hasContent), ...incoming];
+  } else {
+    const cur = ed[k] || {};
+    if (how === 'replace' || !hasContent(cur)) {
+      ed[k] = { ...data, author: data.author || cur.author };
+    } else {
+      const merged = { ...cur };
+      for (const [f, v] of Object.entries(data)) {
+        if (f.startsWith('_')) continue;
+        if (Array.isArray(v)) merged[f] = [...(cur[f] || []).filter(x => (typeof x === 'string' ? x.trim() : hasContent(x))), ...v];
+        else if (!merged[f] || (typeof merged[f] === 'string' && !merged[f].trim())) merged[f] = v;
+      }
+      // One-per-line lists redraw from their items.
+      Object.keys(merged).filter(f => f.startsWith('_raw_')).forEach(f => delete merged[f]);
+      ed[k] = merged;
+    }
+    ed[k].enabled = true;
+  }
+  ed._from = { ...(ed._from || {}), [k]: { from: p.from, at: p.created, date: p.date } };
+  if (ed._done) delete ed._done[k];
+  attempted[k] = false;
+  active = k;
+  changed();
+  refresh().then(() => renderAll({ scroll: true }));
+  toast(`Added @${p.from || 'someone'}’s ${STEP_BY[k].label}. Check it, then tick it off.`);
 }
 
 /* ------------------------------------------------------------------ */
@@ -706,7 +959,7 @@ function applyProblems() {
     const box = document.getElementById(`problems-${s.key}`);
     if (!box) continue;
     const probs = attempted[s.key] ? sectionProblems(s.key) : [];
-    box.innerHTML = probs.length ? `<p class="slot-hint">Before you tick this off: ${probs.map(esc).join(' · ')}</p>` : '';
+    box.innerHTML = probs.length ? `<p class="slot-hint">${PART ? 'Before you send this' : 'Before you tick this off'}: ${probs.map(esc).join(' · ')}</p>` : '';
   }
 }
 
@@ -755,11 +1008,30 @@ function openStep(k, { untick = true } = {}) {
   renderAll({ scroll: true });
 }
 
+// Something's missing: say so where the person is looking (a toast), mark the
+// first box that needs filling in, and take them to it.
+function showBlocked(k, probs, lead) {
+  applyProblems();
+  toast(`${lead}: ${probs.join(' · ')}`);
+  let target = document.querySelector(`#sec-${k} .slot.problem, #sec-${k} .link-chip.problem`);
+  if (!target) {
+    // e.g. "Add at least one story": point at the first empty title box.
+    const empty = sel => [...document.querySelectorAll(sel)].find(s => !s.textContent.trim());
+    target = empty(`#sec-${k} .item .title-slot[contenteditable], #sec-${k} .item .inline-slot[contenteditable]`)
+      || empty(`#sec-${k} .item [contenteditable]`)
+      || empty(`#sec-${k} [contenteditable]:not(.has-default)`);
+    if (target) hint(target, 'Fill this in first');
+  }
+  const box = target || document.getElementById(`problems-${k}`);
+  box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (target?.isContentEditable) setTimeout(() => target.focus(), 350);
+}
+
 async function markDone(k) {
   attempted[k] = true;
   await refresh();
   const probs = sectionProblems(k);
-  if (probs.length) { applyProblems(); document.getElementById(`problems-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (probs.length) return showBlocked(k, probs, 'Not ticked yet');
   ed._done = { ...(ed._done || {}), [k]: true };
   const next = nextStepKey(k);
   active = next;
@@ -830,7 +1102,7 @@ async function refresh() {
   if (dl) dl.textContent = dateLine;
   const mark = $('#mark-extras');
   if (mark) mark.textContent = markLabel('extras');
-  renderSteps();
+  if (!PART) renderSteps();
   renderRail();
   applyProblems();
   if (active === 'review') renderReview();
@@ -838,6 +1110,7 @@ async function refresh() {
 
 const scheduleRefresh = debounce(refresh, 300);
 const scheduleSave = debounce(async () => {
+  if (PART) return savePartLocally();   // a contributor's part stays in their browser until they send it
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ed.date || '')) return;
   try {
     await api('/api/draft', ed);
@@ -991,13 +1264,38 @@ async function init() {
   MODE = await detectMode();
   document.body.dataset.mode = MODE;
   META = await api('/api/meta');
-  ed = await api('/api/latest');
-  ed._done = ed._done || {};
-  await refresh();
-  active = firstOpenStep();
-  renderAll({ scroll: true });
-  await loadList();
 
+  // ?part=say_hello → contributor mode: write just that section and send it.
+  const wanted = new URLSearchParams(location.search).get('part');
+  if (PART_KEYS.includes(wanted)) {
+    PART = wanted;
+    document.body.dataset.part = PART;
+    loadPart();
+    await refresh();
+    renderAll({ scroll: true });
+    $('#send-part').onclick = sendPart;
+  } else {
+    ed = await api('/api/latest');
+    ed._done = ed._done || {};
+    await refresh();
+    active = firstOpenStep();
+    renderAll({ scroll: true });
+    await loadList();
+    // #part=… → someone's part, opened from the link they sent.
+    const sent = /^#part=([A-Za-z0-9_-]+)/.exec(location.hash);
+    if (sent) {
+      history.replaceState(null, '', siteUrl() + location.search);
+      try {
+        const p = await decodePart(sent[1]);
+        if (!validPart(p)) throw new Error();
+        openAddPart(p);
+      } catch {
+        toast('That part link couldn’t be read. It may have been cut short. Ask them for the file instead.');
+      }
+    }
+  }
+
+  $('#add-part').onclick = () => openAddPart();
   $('#open-select').onchange = e => { if (e.target.value) openSaved(e.target.value); e.target.value = ''; };
   $('#new-btn').onclick = newEdition;
   $('#review-btn').onclick = () => goTo('review');

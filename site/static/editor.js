@@ -808,11 +808,7 @@ async function sendPart() {
   attempted[PART] = true;
   await refresh();
   const probs = sectionProblems(PART);
-  if (probs.length) {
-    applyProblems();
-    document.getElementById(`problems-${PART}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    return;
-  }
+  if (probs.length) return showBlocked(PART, probs, 'Not sent yet');
   const payload = partPayload();
   const link = `${siteUrl()}#part=${await encodePart(payload)}`;
   const label = STEP_BY[PART].label;
@@ -1012,11 +1008,30 @@ function openStep(k, { untick = true } = {}) {
   renderAll({ scroll: true });
 }
 
+// Something's missing: say so where the person is looking (a toast), mark the
+// first box that needs filling in, and take them to it.
+function showBlocked(k, probs, lead) {
+  applyProblems();
+  toast(`${lead}: ${probs.join(' · ')}`);
+  let target = document.querySelector(`#sec-${k} .slot.problem, #sec-${k} .link-chip.problem`);
+  if (!target) {
+    // e.g. "Add at least one story": point at the first empty title box.
+    const empty = sel => [...document.querySelectorAll(sel)].find(s => !s.textContent.trim());
+    target = empty(`#sec-${k} .item .title-slot[contenteditable], #sec-${k} .item .inline-slot[contenteditable]`)
+      || empty(`#sec-${k} .item [contenteditable]`)
+      || empty(`#sec-${k} [contenteditable]:not(.has-default)`);
+    if (target) hint(target, 'Fill this in first');
+  }
+  const box = target || document.getElementById(`problems-${k}`);
+  box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (target?.isContentEditable) setTimeout(() => target.focus(), 350);
+}
+
 async function markDone(k) {
   attempted[k] = true;
   await refresh();
   const probs = sectionProblems(k);
-  if (probs.length) { applyProblems(); document.getElementById(`problems-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (probs.length) return showBlocked(k, probs, 'Not ticked yet');
   ed._done = { ...(ed._done || {}), [k]: true };
   const next = nextStepKey(k);
   active = next;

@@ -401,3 +401,18 @@ dialog { border-radius: 4px; box-shadow: 0 4px 20px rgba(0, 0, 0, .2); }
 .browser-only { display: none !important; }
 body[data-mode="browser"] .browser-only { display: inline-block !important; }
 body[data-mode="browser"] .server-only { display: none !important; }
+
+/* Sending parts: contributor mode (?part=…) and the editor's "Add a part" */
+.contrib-only { display: none !important; }
+body[data-part] .contrib-only { display: inline-block !important; }
+body[data-part] .editor-only { display: none !important; }
+.part-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; }
+.part-bar select, .part-bar input { font: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; background: var(--panel); color: var(--ink); }
+.part-bar .muted { color: var(--muted); }
+.part-bar a { color: inherit; margin-left: auto; }
+.post .from-note { font: 12px system-ui, sans-serif; color: #444; border-left: 2px solid #999; padding: 2px 8px; margin: 0 0 12px; }
+.paste-link { display: flex; gap: 6px; }
+.paste-link input { flex: 1; font: 13px system-ui, sans-serif; border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; background: var(--panel); color: var(--ink); }
+.part-error { color: var(--ink); border-left: 2px solid #333; padding: 2px 8px; font-size: 13px; }
+.dialog-body h4 { margin: 4px 0 0; font-size: 14px; }
+.dialog-body hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; width: 100%; }
