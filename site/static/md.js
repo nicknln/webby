@@ -11,8 +11,12 @@ const absUrl = href => { try { return new URL(href, COMMUNITY).href; } catch { r
 const EMOJI_RE = /\p{Extended_Pictographic}/u;
 
 function htmlToMd(html) {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  return convertNode(doc.body)
+  return nodeToMd(new DOMParser().parseFromString(html, 'text/html').body);
+}
+
+// Converted Markdown for one element, with whitespace tidied line by line.
+function nodeToMd(node) {
+  return convertNode(node)
     .split('\n').map(l => l.replace(/[ \t ]+/g, ' ').trim()).join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -99,7 +103,7 @@ function convertNode(node) {
         break;
       }
       case 'blockquote': {
-        const body = htmlToMdFromNode(n);
+        const body = nodeToMd(n);
         s += '\n\n' + body.split('\n').map(l => (l ? '> ' + l : '>')).join('\n') + '\n\n';
         break;
       }
@@ -108,11 +112,6 @@ function convertNode(node) {
     }
   }
   return s;
-}
-
-function htmlToMdFromNode(node) {
-  return convertNode(node).split('\n').map(l => l.replace(/[ \t ]+/g, ' ').trim()).join('\n')
-    .replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /* ------------------------------------------------------------------ */

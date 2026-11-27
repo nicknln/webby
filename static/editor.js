@@ -241,7 +241,20 @@ function renderSteps() {
 /* ------------------------------------------------------------------ */
 
 // Single-line text (titles, names, greetings). Enter is ignored; pastes become plain text.
-function textSlot(path, placeholder, { cls = '', tag = 'div', strip = '' } = {}) {
+// Single-line text (titles, names, greetings). Enter is ignored; pastes become plain text.
+// With `linkable`, a link pasted or typed into a title becomes the item's thread link,
+// and the title is worked out from it (like the buzzing list).
+// A username from whatever was pasted: "@name", or a profile link like
+// https://community.giffgaff.com/u/name (right-click their name → Copy link address).
+function pastedUsername(e) {
+  const text = e.clipboardData.getData('text/plain').trim();
+  const fromUrl = s => (/\/u\/([\w.-]+)\/?(?:[?#].*)?$/.exec(s || '') || [])[1];
+  const html = e.clipboardData.getData('text/html');
+  const a = html && new DOMParser().parseFromString(html, 'text/html').querySelector('a[href*="/u/"]');
+  return fromUrl(text) || (a && fromUrl(a.getAttribute('href'))) || (/^@[\w.-]+$/.test(text) ? text.slice(1) : null);
+}
+
+function textSlot(path, placeholder, { cls = '', tag = 'div', strip = '', linkable = false, linkPath = path.replace(/\.title$/, '.link'), userLink = false } = {}) {
   const editable = EDIT;
   const value = String(getPath(ed, path) ?? '');
   if (!editable && !value) return null;
@@ -249,6 +262,21 @@ function textSlot(path, placeholder, { cls = '', tag = 'div', strip = '' } = {})
     contenteditable: editable ? 'true' : null, spellcheck: 'true' });
   s.textContent = strip ? value.replace(new RegExp(`^${strip}`), '') : value;
   if (!editable) return s;
+  const useLink = url => {
+    const before = String(getPath(ed, path) ?? '').trim();
+    const keepWords = before && !/^https?:\/\//.test(before);
+    setPath(ed, linkPath, url);
+    if (!keepWords) setPath(ed, path, Gaff.titleFromLink(url));
+    changed();
+    renderAll();
+    // Photo of the Week: the link can't say who took the photo, so go straight to that box.
+    const who = path === 'photo_of_the_week.photo_title' && document.querySelector('[data-path="photo_of_the_week.by"]');
+    if (who && !who.textContent.trim()) {
+      who.focus();
+      return toast('Title worked out from the link. Now add who took the photo: type their username, or paste the link to their profile.');
+    }
+    toast(keepWords ? 'Link added to the title.' : 'Link added, and the title worked out from it. Click the title to change it.');
+  };
   s.addEventListener('input', () => {
     let v = s.textContent.replace(/\s+/g, ' ').trim();
     if (strip) v = v.replace(new RegExp(`^${strip}`), '');
@@ -258,8 +286,26 @@ function textSlot(path, placeholder, { cls = '', tag = 'div', strip = '' } = {})
   s.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); s.blur(); } });
   s.addEventListener('paste', e => {
     e.preventDefault();
-    document.execCommand('insertText', false, e.clipboardData.getData('text/plain').replace(/\s+/g, ' ').trim());
+    const text = e.clipboardData.getData('text/plain').replace(/\s+/g, ' ').trim();
+    if (userLink) {
+      const name = pastedUsername(e);
+      if (name) { s.textContent = name; s.dispatchEvent(new Event('input')); return; }
+    }
+    if (linkable) {
+      const html = e.clipboardData.getData('text/html');
+      const a = html && new DOMParser().parseFromString(html, 'text/html').querySelector('a[href]');
+      const url = /^https?:\/\/\S+$/.test(text) ? text : (a && a.textContent.trim() === text ? absUrl(a.getAttribute('href')) : null);
+      if (url) return useLink(url);
+    }
+    document.execCommand('insertText', false, text);
   });
+  if (linkable) {
+    // Typed a link and left the box: same as pasting one.
+    s.addEventListener('blur', () => {
+      const v = s.textContent.trim();
+      if (/^https?:\/\/\S+$/.test(v)) { setPath(ed, path, ''); useLink(v); }
+    });
+  }
   return s;
 }
 
@@ -463,7 +509,7 @@ function renderCanvas() {
   // Header
   EDIT = active === 'header';
   const head = el('section', { class: `sec ${sectionState('header')}`, id: 'sec-header' });
-  head.append(fixed('p', {}, el('img', { src: META.images.banner, alt: '' })));
+  head.append(fixed('p', {}, el('img', { src: META.images.banner, alt: 'The gaff banner' })));
   const dateP = fixed('p', { id: 'date-line' }, el('strong', {}, dateLine));
   head.append(EDIT ? dateP : titleRow(dateP, statePill('header')));
   if (EDIT) {
@@ -551,6 +597,10 @@ function authorInput(path, value) {
   const fit = () => { inp.size = Math.max(9, inp.value.length + 1); };
   fit();
   inp.addEventListener('input', () => { setPath(ed, path, inp.value.replace(/^@/, '').trim()); fit(); changed(); });
+  inp.addEventListener('paste', e => {
+    const name = pastedUsername(e);
+    if (name) { e.preventDefault(); inp.value = name; inp.dispatchEvent(new Event('input')); inp.dispatchEvent(new Event('change')); }
+  });
   inp.addEventListener('change', () => renderAll());   // e.g. the giffgaffiversary closing line names the author
   return inp;
 }
@@ -578,7 +628,7 @@ function renderSection(s) {
   if (k === 'happenings') {
     (d.stories ||= []).forEach((it, i) => {
       if (!EDIT && !hasContent(it)) return;
-      const t = textSlot(`happenings.stories.${i}.title`, 'Story title', { cls: 'title-slot bold' });
+      const t = textSlot(`happenings.stories.${i}.title`, 'Story title (or paste the link to the thread)', { cls: 'title-slot bold', linkable: true });
       box.append(itemCard(k, 'stories', i, t, linkChip(`happenings.stories.${i}.link`, t),
         mdSlot(`happenings.stories.${i}.quote`, 'Paste the post here, straight from the community or Google Docs', { tag: 'blockquote' })));
     });
@@ -590,11 +640,11 @@ function renderSection(s) {
   }
 
   if (k === 'say_hello') {
-    box.append(fixed('p', {}, el('img', { src: META.images.say_hello, alt: '' })),
+    box.append(fixed('p', {}, el('img', { src: META.images.say_hello, alt: 'Say Hello picture' })),
                mdSlot('say_hello.intro', '', { defaultText: META.defaults.say_hello_intro }));
     (d.members ||= []).forEach((it, i) => {
       if (!EDIT && !hasContent(it)) return;
-      const t = textSlot(`say_hello.members.${i}.title`, 'Their intro thread title', { cls: 'title-slot' });
+      const t = textSlot(`say_hello.members.${i}.title`, 'Their intro thread title (or paste the link to it)', { cls: 'title-slot', linkable: true });
       box.append(itemCard(k, 'members', i, avatarPicker(`say_hello.members.${i}.avatar`, i), t,
         linkChip(`say_hello.members.${i}.link`, t),
         textSlot(`say_hello.members.${i}.greeting`, 'Greeting, e.g. Hiya and welcome to the community @username', { cls: 'greeting' }),
@@ -605,11 +655,11 @@ function renderSection(s) {
   }
 
   if (k === 'giffgaffiversary') {
-    box.append(fixed('p', {}, el('img', { src: META.images.giffgaffiversary, alt: '' })),
+    box.append(fixed('p', {}, el('img', { src: META.images.giffgaffiversary, alt: 'giffgaffiversary picture' })),
                mdSlot('giffgaffiversary.intro', 'Intro, e.g. I hope you had a good week and you’re ready for our latest edition'));
     (d.posts ||= []).forEach((it, i) => {
       if (!EDIT && !hasContent(it)) return;
-      const t = textSlot(`giffgaffiversary.posts.${i}.title`, 'Their anniversary thread title', { cls: 'title-slot' });
+      const t = textSlot(`giffgaffiversary.posts.${i}.title`, 'Their anniversary thread title (or paste the link to it)', { cls: 'title-slot', linkable: true });
       box.append(itemCard(k, 'posts', i, t, linkChip(`giffgaffiversary.posts.${i}.link`, t),
         textSlot(`giffgaffiversary.posts.${i}.greeting`, 'Greeting, e.g. Congratulations @username!', { cls: 'greeting' }),
         mdSlot(`giffgaffiversary.posts.${i}.quote`, 'Paste their post here', { tag: 'blockquote' })));
@@ -621,12 +671,13 @@ function renderSection(s) {
   }
 
   if (k === 'photo_of_the_week') {
-    box.append(fixed('p', {}, el('img', { src: META.images.photo_of_the_week, alt: '' })));
-    const title = textSlot('photo_of_the_week.photo_title', 'photo thread title', { cls: 'inline-slot bold', tag: 'span' })
+    box.append(fixed('p', {}, el('img', { src: META.images.photo_of_the_week, alt: 'Photo of the Week banner' })));
+    const title = textSlot('photo_of_the_week.photo_title', 'paste the photo thread link', {
+      cls: 'inline-slot bold', tag: 'span', linkable: true, linkPath: 'photo_of_the_week.link' })
       || el('span', { class: 'missing' }, 'photo title');
     const byName = String(d.by || '').replace(/^@/, '');
     const by = EDIT
-      ? [el('span', { class: 'fixed' }, ' by @'), textSlot('photo_of_the_week.by', 'username', { cls: 'inline-slot', tag: 'span', strip: '@' })]
+      ? [el('span', { class: 'fixed' }, ' by @'), textSlot('photo_of_the_week.by', 'who took it', { cls: 'inline-slot', tag: 'span', strip: '@', userLink: true })]
       : [' by ', byName ? el('a', { class: 'mention', href: profile(byName), target: '_blank', rel: 'noopener' }, '@' + byName) : el('span', { class: 'missing' }, '@username')];
     box.append(el('p', {}, el('span', { class: 'fixed' }, 'This week’s featured photo is '), title, ...by),
                linkChip('photo_of_the_week.link', title, 'Add the photo thread link'));
@@ -663,7 +714,7 @@ function renderExtras() {
     if (EDIT) box.append(el('h4', { class: 'by-line' }, el('em', {}, 'by @'), authorInput(`sections.${i}.author`, sec.author)));
     else if (sec.author) box.append(fixed('h4', {}, el('em', {}, 'by ', el('a', { href: profile(String(sec.author).replace(/^@/, '')), target: '_blank', rel: 'noopener' }, '@' + String(sec.author).replace(/^@/, '')))));
     if (EDIT) box.append(linkChip(`sections.${i}.image`, null, 'Add a picture at the top (optional)'));
-    if (sec.image) box.append(fixed('p', {}, el('img', { src: sec.image, alt: '' })));
+    if (sec.image) box.append(fixed('p', {}, el('img', { src: sec.image, alt: 'Section picture' })));
     const body = mdSlot(`sections.${i}.body`, 'Paste or write the section here');
     if (body) box.append(body);
     wrap.append(box);
@@ -729,15 +780,18 @@ function avatarPicker(path, i) {
   const ids = Object.keys(META.avatars);
   let current = getPath(ed, path);
   if (current === undefined || current === '') current = ids[(i) % ids.length];
-  const row = el('div', { class: 'avatar-pick' });
-  for (const id of ids) {
+  // Labelled buttons, so they still make sense if the pictures can't load.
+  const row = el('div', { class: 'avatar-pick', role: EDIT ? 'radiogroup' : null, 'aria-label': 'Avatar' });
+  ids.forEach((id, n) => {
     const on = String(current) === id;
-    if (!EDIT && !on) continue;
-    row.append(el('img', { src: META.avatars[id], alt: `Stock avatar ${id}`, class: on ? 'on' : '',
-      onclick: EDIT ? () => { setPath(ed, path, Number(id)); changed(); renderAll(); } : null }));
-  }
-  if (!ids.includes(String(current)) && current) row.append(el('img', { src: current, alt: 'Custom avatar', class: 'on' }));
-  if (EDIT) row.append(el('small', {}, 'pick an avatar'));
+    if (!EDIT && !on) return;
+    const pic = el('img', { src: META.avatars[id], alt: '' });
+    row.append(el(EDIT ? 'button' : 'span', {
+      class: `avatar-opt ${on ? 'on' : ''}`, type: EDIT ? 'button' : null, role: EDIT ? 'radio' : null, 'aria-checked': EDIT ? String(on) : null,
+      onclick: EDIT ? () => { setPath(ed, path, Number(id)); changed(); renderAll(); } : null,
+    }, el('span', { class: 'avatar-pic' }, pic), EDIT ? el('span', { class: 'avatar-name' }, `Avatar ${n + 1}`) : null));
+  });
+  if (!ids.includes(String(current)) && current) row.append(el('span', { class: 'avatar-opt on' }, el('span', { class: 'avatar-pic' }, el('img', { src: current, alt: '' }))));
   return row;
 }
 
@@ -814,7 +868,7 @@ function renderPartCanvas() {
   const c = $('#canvas');
   c.innerHTML = '';
   EDIT = false;
-  c.append(fixed('p', {}, el('img', { src: META.images.banner, alt: '' })),
+  c.append(fixed('p', {}, el('img', { src: META.images.banner, alt: 'The gaff banner' })),
            fixed('p', { id: 'date-line' }, el('strong', {}, headerParts().dateLine)));
   c.append(PART === 'extras' ? renderExtras() : renderSection(STEP_BY[PART]));
 }
@@ -1318,6 +1372,17 @@ function openFile() {
   });
   input.click();
 }
+
+/* Pictures from community.giffgaff.com don't always load here (the community often refuses
+   pictures shown on other sites). Show a tidy labelled box instead of a broken image; the
+   picture itself still shows on the community. */
+document.addEventListener('error', e => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || img.dataset.failed) return;
+  img.dataset.failed = '1';
+  if (img.closest('.avatar-pic')) { img.closest('.avatar-pic').classList.add('missing'); img.remove(); return; }
+  img.replaceWith(el('span', { class: 'img-missing' }, `${img.alt || 'Picture'} – shows on the community`));
+}, true);
 
 /* ------------------------------------------------------------------ */
 /* Start                                                               */

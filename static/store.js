@@ -183,5 +183,5 @@
     }
   }
 
-  root.GaffStore = { api, saveDraft, scaffold, listing };
+  root.GaffStore = { api };
 })(typeof window !== 'undefined' ? window : globalThis);
