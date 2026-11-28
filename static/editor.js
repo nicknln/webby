@@ -1759,6 +1759,7 @@ async function init() {
     }
   }
 
+  showIntro();
   $('#open-select').onchange = e => {
     const v = e.target.value;
     e.target.value = '';
@@ -1768,6 +1769,23 @@ async function init() {
   $('#clear-btn').onclick = clearPage;
   $('#review-btn').onclick = () => goTo('review');
   setInterval(showSaved, 30000);
+}
+
+// When the editor opens: the walkthrough in a small box, until it's dismissed (remembered in this browser).
+// It plays the video if static/walkthrough.mp4 is there; otherwise it links to the walkthrough.
+function showIntro() {
+  let gone = false;
+  try { gone = localStorage.getItem('gaff.introDismissed') === '1'; } catch { /* storage unavailable */ }
+  if (gone) return;
+  const box = $('#intro'), video = $('#intro-video');
+  box.hidden = false;
+  video.addEventListener('loadeddata', () => { video.hidden = false; $('#intro-link').hidden = true; video.play().catch(() => {}); }, { once: true });
+  video.src = 'static/walkthrough.mp4';
+  $('#intro-close').onclick = () => {
+    box.hidden = true;
+    video.pause();
+    try { localStorage.setItem('gaff.introDismissed', '1'); } catch { /* storage unavailable */ }
+  };
 }
 
 init().catch(err => {

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The gaff editor</title>
-<link rel="stylesheet" href="static/style.css?v=7c4ff28a4c">
+<link rel="stylesheet" href="static/style.css?v=dee7a69276">
 </head>
 <body>
 <header class="topbar">
@@ -46,10 +46,17 @@
   <form method="dialog" class="dialog-body" id="done-body"></form>
 </dialog>
 <div class="toast" id="toast" role="status" hidden></div>
+<!-- Shown when the editor opens until dismissed: the walkthrough video if static/walkthrough.mp4 is there, otherwise a link to it -->
+<aside class="intro" id="intro" aria-labelledby="intro-title" hidden>
+  <div class="intro-head"><h2 id="intro-title">How the gaff editor works</h2><button class="intro-x" id="intro-close" type="button" aria-label="Dismiss the walkthrough">×</button></div>
+  <video id="intro-video" muted loop playsinline controls preload="metadata" hidden></video>
+  <p class="intro-text">Work down the page: paste each part in, tick it off, then copy the post onto the community.</p>
+  <a class="intro-link" id="intro-link" href="https://claude.ai/artifact/JBkZDCDR58CsAb2eJTT69m" target="_blank" rel="noopener">Watch the 20-second walkthrough ↗<span class="sr-only"> (opens in a new tab)</span></a>
+</aside>
 
 <script src="static/md.js?v=512c4dd237"></script>
 <script src="static/gaff.js?v=59878dafb9"></script>
 <script src="static/store.js?v=ed5e7037ab"></script>
-<script src="static/editor.js?v=c94ffd10f5"></script>
+<script src="static/editor.js?v=4d7d2c563e"></script>
 </body>
 </html>
