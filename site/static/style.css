@@ -10,13 +10,15 @@
   --hl: #f2f2f2;
   --code-bg: #fafaf7;
   --focus: #333;
-  --box: #c4c4bf;          /* outline of boxes you type into */
+  --box: #8f8f8a;          /* edge of boxes you type into (3:1 against white) */
   --go: #1e7b3c;
   --go-dark: #17642f;
   --go-soft: #e7f3ea;
   --warn: #9a5b00;
   --warn-soft: #fff4dc;
-  --warn-line: #d89a2b;
+  --warn-line: #b8760f;
+  --ok-text: #1e7b3c;                                             /* done / saved, in the editor around the post */
+  --att-bg: #fff4dc; --att-text: #9a5b00;                         /* needs attention, around the post */
   --font: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-family: var(--font);
   color-scheme: light;
@@ -26,11 +28,13 @@
   :root:not([data-theme="light"]) {
     --bg: #161615; --panel: #1f1f1d; --ink: #ecece8; --muted: #a2a29c; --line: #34342f;
     --hl: #2a2a2a; --code-bg: #191917; --focus: #bbb; color-scheme: dark;
+    --ok-text: #8fd6a4; --att-bg: #3a2c12; --att-text: #f0b860;
   }
 }
 :root[data-theme="dark"] {
   --bg: #161615; --panel: #1f1f1d; --ink: #ecece8; --muted: #a2a29c; --line: #34342f;
   --hl: #2a2a2a; --code-bg: #191917; --focus: #bbb; color-scheme: dark;
+  --ok-text: #8fd6a4; --att-bg: #3a2c12; --att-text: #f0b860;
 }
 
 * { box-sizing: border-box; }
@@ -51,55 +55,40 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn.primary:hover:not(:disabled) { background: var(--go-dark); filter: none; }
 .btn.primary:disabled { background: #9fbfa8; border-color: #9fbfa8; opacity: 1; }
 .btn.small { padding: 2px 8px; font-size: 12px; }
-.btn.ghost { background: transparent; }
-.btn.big { padding: 6px 16px; font-size: 14px; }
+.btn.big { padding: 8px 18px; font-size: 14px; min-height: 36px; }
 .icon-btn { background: none; border: 0; color: inherit; cursor: pointer; opacity: .7; font-size: 15px; padding: 2px 4px; }
 .icon-btn:hover { opacity: 1; }
 select { border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; background: var(--panel); color: var(--ink); }
 
 /* ---------- top bar ---------- */
+/* Logo and save status on the left, Open, New edition and Review & build on the right, all one height.
+   The bar uses the same columns as the page below, so its contents line up with the post's edges. */
 .topbar {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 8px 16px; background: var(--panel); color: var(--ink); border-bottom: 1px solid var(--line);
+  display: grid; grid-template-columns: 1fr 40px; padding: 8px 0;
+  background: var(--panel); color: var(--ink); border-bottom: 1px solid var(--line);
 }
-.brand { display: flex; align-items: baseline; gap: 8px; }
+body.rail-open .topbar { grid-template-columns: 1fr minmax(300px, 34%); }
+.topbar-inner { width: 100%; max-width: 752px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; gap: 8px 16px; }
+.brand { display: flex; align-items: baseline; gap: 8px; flex: none; }
 .logo { font-weight: 700; font-size: 15px; }
 .brand-sub { color: var(--muted); font-size: 13px; }
-.top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
-.save-status { color: var(--muted); font-size: 12px; min-width: 80px; text-align: right; }
+/* Logo with "✓ Saved" underneath, so the buttons always fit on one row */
+.brand-block { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.save-status { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.25em; }
+.save-status.saved { color: var(--ok-text); font-weight: 600; }
+.save-status.error { color: var(--att-text); font-weight: 600; }
+.top-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; flex: none; max-width: 100%; }
+.topbar .btn, .topbar select { height: 32px; padding: 0 12px; font-size: 13px; line-height: 1; }
+.topbar select { width: 10.5em; padding-right: 6px; }
 
 /* Buttons that only appear in one mode */
-.browser-only, .contrib-only { display: none !important; }
-body[data-mode="browser"] .browser-only { display: inline-block !important; }
+.contrib-only { display: none !important; }
 body[data-part] .contrib-only { display: inline-block !important; }
 body[data-part] .editor-only { display: none !important; }
 
-/* ---------- step bar ---------- */
-.tabs {
-  flex: none; display: flex; align-items: center; gap: 4px 14px; flex-wrap: wrap;
-  padding: 6px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
-}
-.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; row-gap: 4px; align-items: center; flex: 1; }
-.steps li { display: flex; align-items: center; }
-.steps li + li::before { content: "›"; color: var(--line); padding: 0 5px; font-size: 14px; }
-.steps li.progress { margin-left: auto; padding-left: 14px; font-size: 11.5px; font-weight: 600; color: var(--go); white-space: nowrap; }
-.steps li.progress::before, .steps li.progress .bar { display: none; }
-.step {
-  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; cursor: pointer;
-  border: 1px solid transparent; background: transparent; border-radius: 4px;
-  padding: 2px 8px 2px 4px; font-size: 12px; line-height: 1.4;
-}
-.step:hover { text-decoration: underline; }
-.step[aria-selected="true"] { border-color: var(--line); font-weight: 700; }
-.step .num {
-  flex: none; width: 17px; height: 17px; border-radius: 50%; display: grid; place-items: center;
-  font-size: 10px; border: 1px solid var(--muted); color: var(--muted);
-}
-.step:is(.todo, .locked)[aria-selected="true"] .num { border-color: var(--ink); color: var(--ink); }
-.step.done .num, .step.ready .num { background: var(--go); border-color: var(--go); color: #fff; }
-.step.warn .num { background: var(--warn-line); border-color: var(--warn-line); color: #fff; }
-.step.skipped .num { border-style: dashed; }
-.step.skipped .step-label { color: var(--muted); text-decoration: line-through; }
+/* ---------- the strip under the top bar (only the contributor page uses it) ---------- */
+.tabs { flex: none; padding: 8px 16px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.tabs:empty { display: none; }
 
 /* Contributor mode (?part=…): "You're writing Say Hello for the gaff on …" */
 .part-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; }
@@ -110,15 +99,16 @@ body[data-part] .editor-only { display: none !important; }
 /* ---------- layout: the post, and the Markdown strip beside it ---------- */
 .studio { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 40px; gap: 1px; background: var(--line); }
 .studio.rail-open { grid-template-columns: 1fr minmax(300px, 34%); }
-.canvas-scroll { overflow: auto; background: var(--bg); padding: 20px 16px 120px; color-scheme: light; }
+.canvas-scroll { position: relative; overflow: auto; background: var(--bg); padding: 20px 16px 120px; color-scheme: light; }   /* relative: keeps hidden screen-reader text inside the scroller */
 
 .rail { background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
 .pane-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); min-height: 46px; }
 .pane-head h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0; flex: 1; }
-.md-toggle { color: var(--muted); font-size: 16px; line-height: 1; }
+.md-toggle { color: var(--muted); font-size: 16px; line-height: 1; min-width: 28px; min-height: 28px; }
 .md-out { overflow: auto; flex: 1; padding: 8px 0; background: var(--code-bg); }
 .md-part { padding: 4px 14px; border-left: 3px solid transparent; }
 .md-part.active { background: var(--hl); border-left-color: #999; }
+.md-waiting { margin: 10px 14px; font-size: 12.5px; line-height: 1.5; color: var(--muted); font-style: italic; }
 .md-part pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
 /* Collapsed: a slim strip with the expand button and Copy */
 .studio:not(.rail-open) .rail .pane-head { flex-direction: column; height: 100%; padding: 10px 0; border-bottom: 0; gap: 12px; }
@@ -128,6 +118,8 @@ body[data-part] .editor-only { display: none !important; }
 .studio:not(.rail-open) #rail-md { display: none; }
 
 @media (max-width: 720px) {
+  .topbar, body.rail-open .topbar { grid-template-columns: 1fr; }
+  .topbar-inner { flex-wrap: wrap; }
   .studio, .studio.rail-open { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
   .studio:not(.rail-open) .rail .pane-head { flex-direction: row; height: auto; padding: 8px 14px; }
   .studio:not(.rail-open) .rail h2, .studio:not(.rail-open) #rail-copy { writing-mode: horizontal-tb; transform: none; }
@@ -137,21 +129,45 @@ body[data-part] .editor-only { display: none !important; }
 /* The thread's title above the post, like on the community */
 .page-title { max-width: 720px; margin: 0 auto 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .page-title h1 { margin: 0; font-size: 24px; line-height: 1.25; font-weight: 700; color: var(--ink); }
+/* Edit | See it as members will */
+.view-switch { margin-left: auto; display: inline-flex; border: 1px solid var(--box); border-radius: 6px; overflow: hidden; }
+.view-opt { border: 0; background: var(--panel); color: var(--ink); padding: 5px 12px; font: 13px var(--font); cursor: pointer; min-height: 30px; }
+.view-opt + .view-opt { border-left: 1px solid var(--box); }
+.view-opt.on { background: var(--ink); color: var(--panel); font-weight: 600; }
+/* When it goes out, and what's left */
+.due-line { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; font-size: 13px; color: var(--muted); }
+.due-line[hidden] { display: none; }
+.due-pill { color: var(--ok-text); border: 1px solid currentColor; border-radius: 999px; padding: 1px 10px; font-weight: 600; }
+.due-line.soon .due-pill { color: var(--att-text); }
 
 /* ---------- Review & build ---------- */
 #review { max-width: 720px; margin: 0 auto; }
 .review-card { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 16px 18px; margin-bottom: 16px; }
-.review-card .btn.big { margin-top: 4px; }
 .step-title { font-size: 17px; margin: 0 0 4px; }
-.section-intro { color: var(--muted); margin: 0 0 12px; font-size: 13px; line-height: 1.45; }
 .review-list { list-style: none; padding: 0; margin: 0 0 16px; display: flex; flex-direction: column; gap: 6px; }
 .review-list li { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; }
 .review-list .num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 12px; border: 1.5px solid var(--muted); color: var(--muted); flex: none; }
 .review-list .done .num { background: var(--go); border-color: var(--go); color: #fff; }
-.review-list .warn .num { background: var(--warn-line); border-color: var(--warn-line); color: #fff; }
+.review-list .warn .num { background: var(--warn); border-color: var(--warn); color: #fff; }
 .review-list .skipped .num { border-style: dashed; }
 .review-name { flex: 1; display: flex; flex-direction: column; font-weight: 600; }
 .review-name small { font-weight: 400; color: var(--muted); }
+/* Review & post: numbered steps for posting on the community */
+.post-steps { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.pstep { display: flex; gap: 14px; align-items: flex-start; border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+.pnum { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--go); color: var(--ok-text); font-weight: 700; display: grid; place-items: center; }
+.pstep.done .pnum { background: var(--go); color: #fff; }
+.pbody { flex: 1; min-width: 0; }
+.pbody h3 { margin: 2px 0; font-size: 15px; }
+.phelp { margin: 0 0 10px; color: var(--muted); font-size: 13px; line-height: 1.45; max-width: 62ch; }
+.pbody .phelp + .phelp { margin-top: -4px; }
+.pbody code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.pbody .link-box { width: 100%; max-width: 560px; padding: 8px 10px; border: 1px solid var(--box); border-radius: 4px; background: var(--panel); }
+.pbody .review-list { margin: 10px 0 0; }
+.missing-box { border-left: 3px solid var(--warn-line); background: var(--att-bg); border-radius: 0 6px 6px 0; padding: 10px 14px; margin: 8px 0 4px; }
+.missing-head { margin: 0; font-weight: 700; color: var(--att-text); }
+.missing-box ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.7; }
+.linkish { background: none; border: 0; padding: 0; font: inherit; color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; text-align: left; }
 
 /* ======================================================================
    The post (always light, like the community)
@@ -162,7 +178,7 @@ body[data-part] .editor-only { display: none !important; }
 }
 .post p { margin: 0 0 1em; }
 .post h1, .post h2, .post h3 { font-size: 20px; font-weight: 700; margin: .9em 0 .4em; }
-.post h4 { font-size: 16px; font-weight: 700; margin: .6em 0 .8em; }
+.post h4, .post .byline { font-size: 16px; font-weight: 700; margin: .6em 0 .8em; }
 .post hr { border: 0; border-top: 2px solid #1d1d1b; margin: 1.2em 0; }
 .post a { color: #1d1d1b; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 .post a.mention { color: inherit; text-decoration: none; }
@@ -186,23 +202,31 @@ body[data-part] .editor-only { display: none !important; }
 }
 
 /* ---------- sections and where you are ---------- */
-.post .sec { position: relative; margin: 26px -12px 0; padding: 0 12px 2px; }
+.post .sec { position: relative; margin: 40px -12px 0; padding: 0 12px 2px; }
 .post .sec:first-child { margin-top: 0; }
-.post .sec > hr.fixed:first-child { margin: 0 0 16px; }
-.post .sec.current { box-shadow: -3px 0 0 var(--go); }
-.post .sec:is(.upcoming, .skipped) :is(h3, h4) { color: #9a9a95; }
-.post .sec:is(.upcoming, .skipped) h4 a { color: inherit; }
+.post .sec > hr.fixed:first-of-type { margin: 0 0 16px; }
+/* The section you're working on: a green outline all round, with a tag on its top edge */
+.post .sec.current { border: 2px solid var(--go); border-radius: 8px; padding: 28px 24px 20px; scroll-margin-top: 24px; }
+.post .sec.current:first-child { margin-top: 14px; }
+.post .sec.current::before {
+  content: "You’re working on this"; position: absolute; top: -13px; left: 18px;
+  background: var(--go); color: #fff; font: 600 12.5px/1.6 var(--font); padding: 1px 10px; border-radius: 4px;
+}
+.post .sec.current > hr.fixed:first-of-type { display: none; }
+.post .sec.current .sec-actions { padding-bottom: 0; }
+.post .sec.upcoming :is(h2, .byline) { color: #6e6e69; }
+.post .sec.upcoming .byline a { color: inherit; }
 
 /* The heading line with its status: "✓ Done [Edit]" */
 .post .sec-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.post .sec-title-row > h3, .post .sec-title-row > p { margin-right: auto; }
-.post .sec-title-row > h3 { margin-top: 0; }
+.post .sec-title-row > h2, .post .sec-title-row > p { margin-right: auto; }
+.post .sec-title-row > h2 { margin-top: 0; }
 .post .sec-status { display: flex; align-items: center; gap: 10px; font: 13px var(--font); color: #5f5f5a; white-space: nowrap; }
 .post .sec-status.done .sec-status-text { color: var(--go); font-weight: 600; }
 .post .extras-label { font: 600 13px var(--font); color: #5f5f5a; text-transform: uppercase; letter-spacing: .04em; margin: 14px auto 6px 0; }
 
 /* "by @name": a small box sized to the name */
-.post h4.by-line { display: flex; align-items: center; gap: 2px; margin: 4px 0 14px; }
+.post .by-line { display: flex; align-items: center; gap: 2px; margin: 4px 0 14px; }
 .post .author-box { font: italic 700 16px var(--font); color: #1d1d1b; border: 1px solid var(--box); border-radius: 4px; background: #fff; padding: 3px 7px; }
 .post .author-box:focus { outline: 2px solid #333; outline-offset: 0; border-color: #333; }
 
@@ -211,12 +235,13 @@ body[data-part] .editor-only { display: none !important; }
 /* ---------- boxes you type or paste into ---------- */
 .post .slot { border-radius: 4px; }
 .post .slot[contenteditable] { outline: 1px solid var(--box); outline-offset: 0; background: #fff; min-height: 1.6em; cursor: text; }
-.post .slot[contenteditable]:hover { outline-color: #9a9a95; }
+.post .slot[contenteditable]:hover { outline-color: #5f5f5a; }
 .post .slot[contenteditable]:focus { outline: 2px solid #333; }
 .post .slot[contenteditable]:empty::before, .post .slot[contenteditable].is-empty::before {
-  content: attr(data-placeholder); color: #8e8e89; font-weight: 400; font-style: normal; pointer-events: none;
+  content: attr(data-placeholder); color: #6e6e69; font-weight: 400; font-style: normal; pointer-events: none;
 }
-.post .slot.has-default.is-empty::after { content: "  (standard text: type to change it)"; font: italic 11px var(--font); color: #9a9a94; }
+.post .slot.has-default.is-empty::before { white-space: pre-line; }   /* keep the standard text's paragraphs */
+.post .slot.has-default.is-empty::after { content: "  (standard text: type to change it)"; font: italic 12px var(--font); color: #6b6b66; }
 .post .slot p:last-child { margin-bottom: 0; }
 
 .post .text-slot { margin: 2px 0; }
@@ -239,7 +264,7 @@ body[data-part] .editor-only { display: none !important; }
   font: 12px/1.45 var(--font); color: var(--warn); background: var(--warn-soft);
   border-left: 3px solid var(--warn-line); border-radius: 0 4px 4px 0; padding: 4px 9px; margin: 8px 0 10px;
 }
-.post .slot-hint::before { content: "\26A0\FE0E  "; }
+.post .slot-hint::before { content: "\26A0\FE0E  "; content: "\26A0\FE0E  " / ""; }
 
 /* The thread link under the title: "Link: community… [Change link]", or "[+ Add the link to the thread]" */
 .post .chip-wrap { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; font: 13px var(--font); color: #5f5f5a; min-width: 0; }
@@ -255,11 +280,79 @@ body[data-part] .editor-only { display: none !important; }
 .post .link-chip:hover { border-color: #333; }
 .post .link-input { font: 14px var(--font); width: 100%; max-width: 560px; padding: 8px 10px; border: 1px solid #333; border-radius: 4px; }
 
+/* The step number beside each section, outside the post's left edge */
+.canvas-scroll { container-type: inline-size; }
+.post .sec > .sec-num {
+  position: absolute; left: -57px; top: 14px; width: 32px; height: 32px; border-radius: 50%;
+  display: grid; place-items: center; font: 700 14px var(--font); line-height: 1;
+  border: 2px solid var(--box); color: #5f5f5a; background: #f4f4f2;
+}
+.post .sec.todo > .sec-num { top: 18px; }
+.post .sec#sec-header > .sec-num { top: 0; }
+.post .sec.current > .sec-num { left: -59px; top: 20px; background: #fff; border-color: var(--go); color: var(--go); box-shadow: 0 0 0 4px var(--go-soft); }
+.post .sec > .sec-num.done { background: var(--go); border-color: var(--go); color: #fff; }
+.post .sec > .sec-num.skipped { border-style: dashed; }
+.post .sec > .sec-num.warn { background: var(--warn); border-color: var(--warn); color: #fff; }
+/* Not enough room beside the post: the number sits just above the section instead */
+@container (max-width: 860px) {
+  .post .sec > .sec-num { position: static; margin: 0 0 10px; }
+  .post .sec.current > .sec-num { margin-top: -6px; }
+}
+
+/* Skipped this week: grey stripes, a dark badge and the title crossed out */
+.post .skip-card {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 16px 20px; border: 1px solid #d6d6d0; border-radius: 6px;
+  background: repeating-linear-gradient(135deg, #f3f3f0 0 10px, #ebebe7 10px 20px); font-family: var(--font);
+}
+.post .skip-text { flex: 1; min-width: 220px; }
+.post .skip-badge { display: inline-block; background: #4a4a46; color: #fff; font-size: 12.5px; font-weight: 700; padding: 2px 10px; border-radius: 999px; margin-bottom: 6px; }
+.post .skipped-card h2 { margin: 0; color: #5f5f5a; }
+.post .skipped-card h2 s { text-decoration-thickness: 2px; }
+.post .skip-note { margin: 2px 0 0; color: #5f5f5a; }
+.post .sec.skipped-card > .sec-num { top: 26px; }
+
+/* The Header when everything's worked out: one line with a tick */
+.post .header-summary { display: flex; align-items: center; gap: 12px; font-family: var(--font); margin: 0 0 4px; }
+.post .header-summary p { margin: 0; flex: 1; }
+/* "Find new members' intro posts on the community ↗" */
+.post .find-link { font: 14px var(--font); margin: -6px 0 14px; }
+.post .slot-hint.dup .linkish { font-size: inherit; }
+
+/* Not started yet: a dashed "to do" card with one big green button */
+.post .todo-card { border: 2px dashed var(--box); border-radius: 6px; background: #fbfbf9; padding: 20px 24px; font-family: var(--font); }
+.post .sec.todo .todo-card h2 { margin: 0; color: #1d1d1b; }
+.post .todo-about { font-size: 15px; color: #5f5f5a; margin: 4px 0 0; }
+.post .todo-about a { color: #1d1d1b; font-weight: 400; }
+.post .todo-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 20px; }
+
 /* ---------- stories, members, anniversaries ---------- */
+/* A finished one, folded to a single line */
+.post .item.folded { display: flex; align-items: center; gap: 14px; border: 1px solid #e3e3df !important; border-radius: 6px; padding: 12px 16px; margin: 8px 0; font-family: var(--font); }
+.post .fold-tick { color: var(--go); font-weight: 700; font-size: 16px; }
+.post .fold-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.post .fold-title { margin: 0; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.post .fold-facts { font-size: 13px; color: #5f5f5a; }
+@media (max-width: 520px) {
+  .post .item.folded { flex-wrap: wrap; }
+  .post .fold-text { flex-basis: calc(100% - 32px); }
+  .post .fold-title { white-space: normal; }
+  .post .item.folded .item-tools { margin-left: 30px; }
+}
+/* "Paste it here" under an empty box */
+.post .paste-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0 14px; font-family: var(--font); }
+.post .paste-row[hidden] { display: none; }
+/* A green Paste button beside a box */
+.post .paste-beside { display: flex; align-items: flex-start; gap: 10px; }
+.post .paste-beside > :first-child { flex: 1; min-width: 0; }
+.post .paste-beside > .paste-btn { flex: none; margin-top: 4px; }
+.post .paste-btn[hidden] { display: none; }
+.post .by-line .paste-btn { margin-left: 10px; font-style: normal; }
+.post .chip-wrap .paste-btn { padding: 4px 12px; min-height: 30px; }
+.post .paste-help { font-size: 13px; color: #5f5f5a; }
 .post .item { position: relative; padding: 18px 0 10px; }
 .post .sec.current .item + .item, .post .sec.current .item + .add-btn { border-top: 1px solid #e3e3df; }
 .post .item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
-.post .item-name { font: 600 13px var(--font); color: #5f5f5a; text-transform: uppercase; letter-spacing: .04em; }
+.post .item-name { font: 600 13px var(--font); color: #5f5f5a; text-transform: uppercase; letter-spacing: .04em; margin: 0; }
 .post .item-tools { display: flex; gap: 6px; }
 .post .item-btn, .post .status-btn {
   font: 13px var(--font); color: #1d1d1b; background: #fff; border: 1px solid #b5b5b0; border-radius: 4px; padding: 3px 10px; cursor: pointer;
@@ -274,15 +367,8 @@ body[data-part] .editor-only { display: none !important; }
 }
 .post .add-btn:hover { border-color: #333; color: #000; }
 
-/* Avatars: labelled buttons, so they still work if the pictures can't load */
-.post .avatar-pick { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0 10px; }
-.post .avatar-opt {
-  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px;
-  background: #fff; border: 1px solid var(--box); border-radius: 6px; font: 12px var(--font); color: #5f5f5a; cursor: pointer;
-}
-.post .avatar-opt:hover { border-color: #333; }
-.post .avatar-opt.on { border: 2px solid #333; padding: 3px; color: #1d1d1b; font-weight: 600; }
-.post span.avatar-opt, .post span.avatar-opt.on { border: 0; padding: 0; cursor: default; }
+/* Each new member's avatar (picked at random), as it will appear in the post */
+.post .avatar-pick { margin: 4px 0 10px; }
 .post .avatar-pic { width: 46px; height: 46px; border-radius: 4px; overflow: hidden; background: #ececea; display: block; }
 .post .avatar-pic img { width: 46px; height: 46px; object-fit: cover; display: block; }
 
@@ -294,10 +380,10 @@ body[data-part] .editor-only { display: none !important; }
 }
 .post .add-section:hover { border-color: #333; color: #000; }
 .post .add-section .plus { font-size: 15px; }
-.post .add-section small { flex-basis: 100%; font: 400 12px var(--font); color: #8a8a85; padding-left: 20px; }
+.post .add-section small { flex-basis: 100%; font: 400 12px var(--font); color: #6b6b66; padding-left: 20px; }
 
 /* "Mark … done & continue" */
-.post .sec-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; padding: 12px 0 16px; font-family: var(--font); }
+.post .sec-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 16px 0; font-family: var(--font); }
 .post .sec-actions .problems { flex: 1 1 100%; }
 .post .sec-actions .problems .slot-hint { margin: 0; }
 
@@ -310,10 +396,16 @@ body[data-part] .editor-only { display: none !important; }
 .post .q-help.after { margin: 6px 0 0; }
 .post .q input {
   font: 15px var(--font); color: #1d1d1b; background: #fff;
-  border: 1px solid #b5b5b0; border-radius: 4px; padding: 9px 11px; min-height: 42px;
+  border: 1px solid var(--box); border-radius: 4px; padding: 9px 11px; min-height: 42px;
 }
 .post .q input.short { width: 7em; }
 .post .q input.link-box { width: 100%; max-width: 560px; }
+.link-row { display: flex; align-items: center; gap: 12px; }
+.link-row .link-box { flex: 1; min-width: 0; }
+.open-link { flex: none; font: 600 14px var(--font); color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.open-link[hidden], .link-row .btn[hidden] { display: none; }
+.link-row .btn { flex: none; }
+.post .q-help a, .phelp a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .post .q input:focus { outline: 2px solid #333; outline-offset: 1px; border-color: #333; }
 .post .q .slot-hint { margin: 8px 0 0; }
 
@@ -324,7 +416,9 @@ body[data-part] .editor-only { display: none !important; }
   position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 20;
   background: #333; color: #fff; font: 13px var(--font); padding: 9px 14px; border-radius: 4px; max-width: min(560px, calc(100vw - 32px));
 }
+.toast:not([hidden]) { display: flex; align-items: center; gap: 16px; }
 .toast[hidden] { display: none; }
+.toast-btn { background: none; border: 0; color: #9fe0b0; font: 700 13px var(--font); text-decoration: underline; cursor: pointer; padding: 4px 2px; }
 
 dialog {
   border: 0; border-radius: 4px; padding: 0; width: min(720px, calc(100vw - 32px));
@@ -333,14 +427,6 @@ dialog {
 dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .dialog-body { padding: 20px 22px; display: flex; flex-direction: column; gap: 12px; }
 .dialog-body h3 { margin: 0; font-size: 18px; }
-.dialog-body h4 { margin: 4px 0 0; font-size: 14px; }
-.dialog-body hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; width: 100%; }
 .dialog-body ul { margin: 0; padding-left: 20px; line-height: 1.6; }
-.dialog-body textarea { width: 100%; height: 260px; font: 12px/1.5 ui-monospace, Menlo, monospace; border: 1px solid var(--line); border-radius: 4px; padding: 10px; background: var(--code-bg); }
 .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
-.files code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
-.err-item { cursor: pointer; }
-.err-item:hover { text-decoration: underline; }
-.paste-link { display: flex; gap: 6px; }
-.paste-link input { flex: 1; font: 13px var(--font); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; background: var(--panel); color: var(--ink); }
 .part-error { color: var(--warn); background: var(--warn-soft); border-left: 3px solid var(--warn-line); border-radius: 0 4px 4px 0; padding: 4px 9px; font-size: 13px; }

@@ -4,37 +4,41 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The gaff editor</title>
-<link rel="stylesheet" href="static/style.css?v=e44777db44">
+<link rel="stylesheet" href="static/style.css?v=db66e5b47f">
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><span class="logo">the gaff</span><span class="brand-sub">editor</span></div>
-  <div class="top-actions">
-    <label class="open-label editor-only">
-      <span class="sr-only">Open a draft or edition</span>
-      <select id="open-select"><option value="">Open…</option></select>
-    </label>
-    <button class="btn editor-only" id="new-btn">New edition</button>
-    <button class="btn editor-only" id="add-part" title="Add a part someone sent you (their file or link), or ask someone for theirs">Add a part</button>
-    <button class="btn browser-only editor-only" id="open-file" title="Open a draft file you saved earlier">Open file</button>
-    <button class="btn browser-only editor-only" id="save-file" title="Download this draft as a file, to keep a copy or move it to another computer">Save file</button>
-    <span class="save-status" id="save-status" aria-live="polite"></span>
-    <button class="btn primary editor-only" id="review-btn">Review &amp; build</button>
-    <button class="btn primary contrib-only" id="send-part">Send my part</button>
+  <!-- Lined up with the post below: logo over its left edge, buttons over its right edge -->
+  <div class="topbar-inner">
+    <div class="brand-block">
+      <div class="brand"><span class="logo">the gaff</span><span class="brand-sub">editor</span></div>
+      <span class="save-status" id="save-status" aria-live="polite"></span>
+    </div>
+    <div class="top-actions">
+      <label class="open-label editor-only">
+        <span class="sr-only">Open a saved draft or edition</span>
+        <select id="open-select"><option value="">Open a draft…</option></select>
+      </label>
+      <button class="btn editor-only" id="clear-btn">Clear page</button>
+      <button class="btn editor-only" id="new-btn">New edition</button>
+      <button class="btn primary editor-only" id="review-btn">Review &amp; build</button>
+      <button class="btn primary contrib-only" id="send-part">Send my part</button>
+    </div>
   </div>
 </header>
 
-<nav class="tabs" id="tabs" role="tablist" aria-label="Steps"></nav>
+<nav class="tabs" id="tabs" aria-label="Steps"></nav>
 
 <main class="studio" id="studio">
   <div class="canvas-scroll" id="scroll">
     <!-- The thread's title, shown above the post like on the community -->
     <div class="page-title">
       <h1 id="thread-title">The gaff</h1>
-      <button class="btn small" id="copy-title" title="Copy the title, to paste as the thread title when you post">Copy title</button>
+      <div class="view-switch editor-only" id="view-switch" role="group" aria-label="How to show the post"></div>
+      <p class="due-line editor-only" id="due-line" hidden></p>
     </div>
     <div id="review"></div>
-    <article class="post editing" id="canvas" aria-label="The post – click the dashed boxes to type or paste"></article>
+    <article class="post editing" id="canvas" aria-label="The gaff: type or paste into the boxes"></article>
   </div>
   <aside class="rail" aria-label="Markdown">
     <div class="pane-head">
@@ -46,14 +50,14 @@
   </aside>
 </main>
 
-<dialog id="done-dialog">
+<dialog id="done-dialog" aria-labelledby="dialog-title">
   <form method="dialog" class="dialog-body" id="done-body"></form>
 </dialog>
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script src="static/md.js?v=512c4dd237"></script>
-<script src="static/gaff.js?v=ddfb5bc92a"></script>
-<script src="static/store.js?v=cc41861fce"></script>
-<script src="static/editor.js?v=3ddba0b56f"></script>
+<script src="static/gaff.js?v=560227763f"></script>
+<script src="static/store.js?v=5078939f6a"></script>
+<script src="static/editor.js?v=bd13921dbf"></script>
 </body>
 </html>

@@ -159,7 +159,7 @@
     authors: G.DEFAULT_AUTHORS,
     avatars: Object.fromEntries(Object.entries(G.AVATARS).map(([k, v]) => [String(k), v])),
     images: G.IMAGES,
-    defaults: { say_hello_intro: G.SAY_HELLO_INTRO, say_hello_outro: G.SAY_HELLO_OUTRO },
+    defaults: { say_hello_intro: G.SAY_HELLO_INTRO, say_hello_outro: G.SAY_HELLO_OUTRO, giffgaffiversary_intro: G.GIFFGAFFIVERSARY_INTRO },
     labels: G.SECTION_LABELS,
     mode: 'browser',
   });

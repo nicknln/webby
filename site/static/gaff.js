@@ -38,6 +38,13 @@
     'Introduce yourself, ask our existing members what giffgaff is really like, ' +
     'or just share your impressions about giffgaff.';
   const SAY_HELLO_OUTRO = 'A big warm giffgaff community welcome to our giffgaffers!';
+  const GIFFGAFFIVERSARY_INTRO =
+    'Hello everyone\n\n' +
+    'I hope you had a good week and you’re ready for our latest edition\n\n' +
+    'We love bringing you all the latest giffgaff news and me personally bringing our giffgaffers ' +
+    'giffgaffiversary to the community.\n\n' +
+    'Because without you my fellow gaffers, we wouldn’t have such a brilliant and diverse place to be a part of.\n\n' +
+    'If your giffgaffiversary is coming up please let me know and I can add it to OUR community gaff newsletter.';
   const SECTION_LABELS = {
     happenings: 'giffgaff Happenings',
     say_hello: 'Say Hello!',
@@ -226,7 +233,7 @@
         const author = get(s, 'author', DEFAULT_AUTHORS.giffgaffiversary);
         const blocks = sectionHeader(get(s, 'title', 'Happy giffgaffiversary!'), author);
         blocks.push(image(get(s, 'image', IMAGES.giffgaffiversary)));
-        if (s.intro) blocks.push(paragraphs(s.intro));
+        blocks.push(paragraphs(get(s, 'intro', GIFFGAFFIVERSARY_INTRO)));
         get(s, 'posts', []).forEach((p, i) => blocks.push(...featuredPost(p, `giffgaffiversary.posts[${i + 1}]`)));
         blocks.push(bold('If it’s YOUR giffgaffiversary, please let the team know by sending a ' +
           `private message to ${mention(author)}`));
@@ -327,8 +334,14 @@
     const issue = ed.issue;
     delete ed.issue;
     if (Number.isInteger(issue) || (typeof issue === 'string' && /^\d+$/.test(issue))) ed.issue = parseInt(issue, 10);
-    for (const m of get(ed.say_hello || {}, 'members', [])) {
+    const hello = ed.say_hello || {};
+    for (const m of get(hello, 'members', [])) {
       if (typeof m.avatar === 'string' && /^\d+$/.test(m.avatar)) m.avatar = parseInt(m.avatar, 10);
+    }
+    // A member with nothing but its (randomly picked) avatar hasn't been filled in yet.
+    if (has(hello, 'members')) {
+      hello.members = hello.members.filter(m => Object.keys(m).some(k => k !== 'avatar'));
+      if (!hello.members.length) delete hello.members;
     }
     return ed;
   }
@@ -350,9 +363,9 @@
   }
 
   const api = {
-    COMMUNITY, IMAGES, AVATARS, DEFAULT_AUTHORS, SAY_HELLO_INTRO, SAY_HELLO_OUTRO, SECTION_LABELS, SECTION_KEYS,
-    EditionError, ordinalDate, issueNumber, parseDate, isoDate, todayUTC, nextFriday, DAY,
-    renderParts, joinParts, render, threadTitle, unclosedBold, fromUi, toUi, renderUi, titleFromLink, linkTitle,
+    IMAGES, AVATARS, DEFAULT_AUTHORS, SAY_HELLO_INTRO, SAY_HELLO_OUTRO, GIFFGAFFIVERSARY_INTRO, SECTION_LABELS, SECTION_KEYS,
+    EditionError, ordinalDate, parseDate, isoDate, todayUTC, nextFriday, DAY,
+    renderParts, joinParts, render, threadTitle, unclosedBold, fromUi, toUi, renderUi, titleFromLink,
   };
   root.Gaff = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
