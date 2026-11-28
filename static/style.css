@@ -244,6 +244,7 @@ body[data-part] .editor-only { display: none !important; }
 /* The thread link under the title: "Link: community… [Change link]", or "[+ Add the link to the thread]" */
 .post .chip-wrap { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; font: 13px var(--font); color: #5f5f5a; min-width: 0; }
 .post .chip-wrap + .fixed, .post .chip-wrap + p { margin-top: 14px; }
+.post .chip-wrap:empty { display: none; }
 .post .link-label { flex: none; }
 .post .link-url { color: #5f5f5a; font-weight: 400; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .post .link-url:hover { text-decoration: underline; }

@@ -415,6 +415,8 @@ function linkChip(path, titleEl, emptyLabel = 'Add the link to the thread') {
     titleEl?.classList.toggle('linked', !!url);
     wrap.innerHTML = '';
     if (!editable) return;
+    // Under a title, the title box takes the link (paste it there), so only show the link once there is one.
+    if (!url && titleEl) return;
     const edit = () => {
         const inp = el('input', { class: 'link-input', type: 'url', placeholder: 'Paste the link…', value: url });
         const save = () => { setPath(ed, path, inp.value.trim()); draw(); changed(); };
