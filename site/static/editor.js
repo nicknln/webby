@@ -1,14 +1,13 @@
 /* The gaff editor – the post itself is the editor.
    Fixed parts are drawn for you; dashed boxes are where you type or paste.
-   Uses md.js (htmlToMd / mdToHtml) and the same server API as the form view. */
+   Uses md.js (htmlToMd / mdToHtml), gaff.js, and the server API (or store.js in the browser). */
 'use strict';
 
 let META = null;
-let ed = null;            // edition being edited (same JSON shape the server and form view use)
+let ed = null;            // edition being edited (the same JSON shape the server and store.js use)
 let active = 'header';    // current step: a section key or 'review'
 let lastRender = null;    // last /api/render result (markdown parts + warnings)
 const attempted = {};     // sections where "Mark done" was pressed (show missing-field hints)
-let EDIT = false;         // whether the section being drawn is editable (captured by each slot)
 
 const STEPS = [
   { key: 'header', label: 'Header' },
@@ -16,7 +15,7 @@ const STEPS = [
   { key: 'say_hello', label: 'Say Hello', title: 'Say Hello!', toggle: true, list: 'members', item: 'new member', about: 'new members and their first posts' },
   { key: 'giffgaffiversary', label: 'giffgaffiversary', title: 'Happy giffgaffiversary!', toggle: true, list: 'posts', item: 'anniversary', about: 'members celebrating years with giffgaff' },
   { key: 'photo_of_the_week', label: 'Photo of the Week', title: 'Photo Of The Week', toggle: true, about: 'the best photo shared this week' },
-  { key: 'extras', label: 'Extras' },
+  { key: 'extras', label: 'Tech News', title: 'Tech News' },
 ];
 const STEP_BY = Object.fromEntries(STEPS.map(s => [s.key, s]));
 
@@ -112,7 +111,7 @@ async function copy(text, btn, msg = 'Copied') {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    toast('Your browser didn’t allow copying. Open the Markdown strip on the right, select it all, and copy it from there.');
+    toast('Your browser didn’t allow copying. On Review & post, select the Markdown under Copy post and copy it from there.');
     return false;
   }
   if (!btn) { toast(msg); return true; }
@@ -171,7 +170,9 @@ const LINES = {
 /* Steps, status and checks                                            */
 /* ------------------------------------------------------------------ */
 
-const isSkipped = k => !!STEP_BY[k]?.toggle && ed[k]?.enabled === false;
+// Skipped this week: switched off, or (Tech News, which has no switch) ticked off with no story.
+const isSkipped = k => (STEP_BY[k]?.toggle ? ed[k]?.enabled === false
+  : k === 'extras' && !!ed._done?.extras && !(ed.sections || []).some(storyIn));
 
 function stepStatus(k) {
   if (!ed._done?.[k]) return 'todo';
@@ -205,10 +206,10 @@ function friendly(w) {
   const label = k => STEP_BY[k]?.label || k;
   return w
     .replace(/^(\w+)\.(\w+)\[(\d+)\]: missing `(\w+)`/, (_, s, l, n, f) => `${label(s)}: item ${n} needs ${FIELD[f] || f}`)
-    .replace(/^sections\[(\d+)\]: missing `(\w+)`/, (_, n, f) => `Extras: section ${n} needs ${FIELD[f] || f}`)
+    .replace(/^sections\[(\d+)\]: missing `(\w+)`/, (_, n, f) => `Tech News: section ${n} needs ${FIELD[f] || f}`)
     .replace(/^photo_of_the_week: missing `by`/, 'Photo of the Week: who took the photo?')
     .replace(/^(\w+): missing `(\w+)`/, (_, s, f) => `${label(s)}: needs ${FIELD[f] || f}`)
-    .replace(/^sections\.(\d+): /, 'Extras (section $1): ')
+    .replace(/^sections\.(\d+): /, 'Tech News (section $1): ')
     .replace(/^(\w+): /, (m, s) => (STEP_BY[s] ? `${label(s)}: ` : m));
 }
 
@@ -221,7 +222,7 @@ function sectionProblems(k) {
   }
   const s = STEP_BY[k];
   if (s?.list && !(ed[k]?.[s.list] || []).some(hasContent)) probs.push(PART ? `Add at least one ${s.item}` : `Add at least one ${s.item}, or skip this week`);
-  if (PART === 'extras' && k === 'extras' && !(ed.sections || []).some(hasContent)) probs.push('Add a section first');
+  if (k === 'extras' && !(ed.sections || []).some(storyIn)) probs.push(PART ? 'Add the story first' : 'Add the story, or skip this week');
   return probs;
 }
 
@@ -281,14 +282,10 @@ const beside = (box, btn) => el('div', { class: 'paste-beside' }, box, btn);
 // With `linkable`, a link pasted or typed into a title becomes the item's thread link,
 // and the title is worked out from it (like the buzzing list).
 function textSlot(path, placeholder, { cls = '', tag = 'div', strip = '', linkable = false, linkPath = path.replace(/\.title$/, '.link'), userLink = false, paste = false } = {}) {
-  const editable = EDIT;
   const value = String(getPath(ed, path) ?? '');
-  if (!editable && !value) return null;
   const s = el(tag, { class: `slot text-slot ${cls}`, 'data-path': path, 'data-placeholder': placeholder,
-    contenteditable: editable ? 'true' : null, spellcheck: 'true',
-    role: editable ? 'textbox' : null, 'aria-label': editable ? placeholder : null });
+    contenteditable: 'true', spellcheck: 'true', role: 'textbox', 'aria-label': placeholder });
   s.textContent = strip ? value.replace(new RegExp(`^${strip}`), '') : value;
-  if (!editable) return s;
   const useLink = url => {
     const before = String(getPath(ed, path) ?? '').trim();
     const keepWords = before && !/^https?:\/\//.test(before);
@@ -350,30 +347,27 @@ function textSlot(path, placeholder, { cls = '', tag = 'div', strip = '', linkab
   return beside(s, btn);
 }
 
-// Rich text (quotes, intros, bodies). Shown rendered; typing and pasting are converted to Markdown.
-function mdSlot(path, placeholder, { tag = 'div', cls = '', defaultText = '' } = {}) {
-  const editable = EDIT;
-  const md = String(getPath(ed, path) ?? '');
-  if (!editable && !md && !defaultText) return null;
-  const s = el(tag, { class: `slot md-slot ${cls}`, 'data-path': path,
-    'data-placeholder': defaultText ? `${defaultText}` : placeholder,
-    contenteditable: editable ? 'true' : null, role: editable ? 'textbox' : null, 'aria-multiline': editable ? 'true' : null,
-    'aria-label': editable ? (defaultText ? `${defaultText} (standard text: type to change it)` : placeholder) : null });
-  if (defaultText) s.classList.add('has-default');
+// The standard wording (Say Hello's intro and closing line, the giffgaffiversary intro): fixed, like the banners.
+// It sits in a box labelled "Standard text" (the label never goes into the post).
+// An older draft that changed it keeps its own words.
+const standardText = (path, text) => el('div', { class: 'std-box' }, el('span', { class: 'std-label' }, 'Standard text · the same every week'),
+  fixed('div', { class: 'std-text', html: mdToHtml(String(getPath(ed, path) || text)) }));
+
+// Rich text (quotes, bodies). Shown rendered; typing and pasting are converted to Markdown.
+function mdSlot(path, placeholder, { tag = 'div', cls = '' } = {}) {
+  const s = el(tag, { class: `slot md-slot ${cls}`, 'data-path': path, 'data-placeholder': placeholder,
+    contenteditable: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': placeholder });
   const show = () => {
     const v = String(getPath(ed, path) ?? '');
-    if (v) s.innerHTML = mdToHtml(v);
-    else if (!editable && defaultText) s.innerHTML = mdToHtml(defaultText);
-    else s.innerHTML = '';
+    s.innerHTML = v ? mdToHtml(v) : '';
     s.classList.toggle('is-empty', !v);
   };
   show();
-  if (!editable) return s;
   // Empty boxes for posts get a big "Paste it here" button, for anyone who doesn't use Cmd+V.
-  const pasteRow = defaultText ? null : el('div', { class: 'paste-row' },
+  const pasteRow = el('div', { class: 'paste-row' },
     pasteButton('Paste it here', (html, text) => take(html, text, false)),
     el('span', { class: 'paste-help' }, `or click in the box and press ${PASTE_KEY}`));
-  const showPaste = () => { if (pasteRow) pasteRow.hidden = !!String(getPath(ed, path) ?? '').trim(); };
+  const showPaste = () => { pasteRow.hidden = !!String(getPath(ed, path) ?? '').trim(); };
   showPaste();
   const take = (html, text, replaceAll) => {
     skippedImages = 0;
@@ -400,19 +394,15 @@ function mdSlot(path, placeholder, { tag = 'div', cls = '', defaultText = '' } =
     const all = !s.textContent.trim() || (sel && sel.toString().trim() && sel.toString().trim() === s.textContent.trim());
     take(e.clipboardData.getData('text/html'), e.clipboardData.getData('text/plain'), all);
   });
-  return pasteRow ? el('div', { class: 'paste-wrap' }, s, pasteRow) : s;
+  return el('div', { class: 'paste-wrap' }, s, pasteRow);
 }
 
 // One item per line, shown rendered (links list, comments list, images).
 function linesSlot(sec, k, kind, placeholder) {
-  const editable = EDIT;
   const path = `${sec}.${k}`;
   const rawPath = `${sec}._raw_${k}`;
-  const items = getPath(ed, path) || [];
-  if (!editable && !items.length) return null;
   const s = el('div', { class: `slot lines-slot lines-${kind}`, 'data-path': path, 'data-placeholder': placeholder,
-    contenteditable: editable ? 'true' : null, role: editable ? 'textbox' : null, 'aria-multiline': editable ? 'true' : null,
-    'aria-label': editable ? placeholder : null });
+    contenteditable: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': placeholder });
   const note = el('p', { class: 'slot-hint', hidden: true });
   const currentText = () => {
     const raw = getPath(ed, rawPath);
@@ -422,7 +412,15 @@ function linesSlot(sec, k, kind, placeholder) {
     if (kind === 'images') { const u = LINES.images.parse(l); return u ? `![](${u})\n` : l; }
     return /^\s*[-*]\s+/.test(l) ? l : `- ${l}`;
   }).join('\n');
-  const show = () => { const t = currentText(); s.innerHTML = t ? mdToHtml(display(t)) : ''; };
+  const opens = kind === 'images' ? el('div', { class: 'img-opens' }) : null;
+  const show = () => {
+    const t = currentText();
+    s.innerHTML = t ? mdToHtml(display(t)) : '';
+    if (opens) {
+      const urls = (getPath(ed, path) || []).filter(u => /^https?:\/\//.test(u));
+      opens.replaceChildren(...urls.map((u, i) => openPicture(u, urls.length > 1 ? `Open picture ${i + 1}` : 'Open picture')));
+    }
+  };
   const sync = text => {
     // Keep each understood line in its tidied form (e.g. a bare link becomes "[Title](link)"),
     // and anything not understood exactly as typed, so the box shows what will be used.
@@ -438,7 +436,6 @@ function linesSlot(sec, k, kind, placeholder) {
     note.textContent = bad.length ? `Not understood: “${bad.join('”, “')}”. ${kind === 'comments' ? 'Use “comment” — @username' : kind === 'images' ? 'Paste the image address' : ''}` : '';
   };
   show();
-  if (!editable) return s;
   s.addEventListener('input', () => { sync(htmlToMd(s.innerHTML)); changed(); });
   s.addEventListener('blur', show);
   const take = (html, text) => {
@@ -455,21 +452,18 @@ function linesSlot(sec, k, kind, placeholder) {
     e.preventDefault();
     take(e.clipboardData.getData('text/html'), e.clipboardData.getData('text/plain'));
   });
-  return el('div', {}, beside(s, pasteButton('Paste', take, `Paste: ${placeholder}`)), note);
+  return el('div', {}, beside(s, pasteButton('Paste', take, `Paste: ${placeholder}`)), opens || '', note);
 }
 
-// A link attached to a title: a small chip that turns into an input when clicked.
-function linkChip(path, titleEl, emptyLabel = 'Add the link to the thread') {
-  const editable = EDIT;
+// The link under a title, once there is one: "Link: community… [Change link]" (the title box takes the link when pasted).
+function linkChip(path, titleEl) {
   if (titleEl && !titleEl.matches('.slot, .missing')) titleEl = titleEl.querySelector('.slot');
   const wrap = el('div', { class: 'chip-wrap' });
   const draw = () => {
     const url = String(getPath(ed, path) ?? '');
     titleEl?.classList.toggle('linked', !!url);
     wrap.innerHTML = '';
-    if (!editable) return;
-    // Under a title, the title box takes the link (paste it there), so only show the link once there is one.
-    if (!url && titleEl) return;
+    if (!url) return;
     const edit = () => {
         const inp = el('input', { class: 'link-input', type: 'url', placeholder: 'Paste the link…', 'aria-label': 'Thread link', value: url });
         const save = () => { setPath(ed, path, inp.value.trim()); draw(); changed(); };
@@ -490,22 +484,9 @@ function linkChip(path, titleEl, emptyLabel = 'Add the link to the thread') {
         inp.focus();
         inp.select();
     };
-    // A clear button: "+ Add the link to the thread", or "Link: community… [Change link]".
-    const button = el('button', { class: `link-chip ${url ? '' : 'empty'}`, type: 'button', 'data-path': path, onclick: edit },
-      url ? 'Change link' : `+ ${emptyLabel}`);
-    if (url) {
-      wrap.append(el('span', { class: 'link-label' }, 'Link:'),
-        el('a', { class: 'link-url', href: url, target: '_blank', rel: 'noopener', title: url }, url.replace(/^https?:\/\/(www\.)?/, '')),
-        button);
-    } else {
-      wrap.append(button, pasteButton('Paste', (html, text) => {
-        const link = linkFrom(html, text);
-        if (!link) return toast('That isn’t a link. Copy the address first, then press Paste.');
-        setPath(ed, path, link);
-        changed();
-        renderAll();
-      }, `Paste: ${emptyLabel}`));
-    }
+    wrap.append(el('span', { class: 'link-label' }, 'Link:'),
+      el('a', { class: 'link-url', href: url, target: '_blank', rel: 'noopener', title: url }, url.replace(/^https?:\/\/(www\.)?/, '')),
+      el('button', { class: 'link-chip', type: 'button', 'data-path': path, onclick: edit }, 'Change link'));
   };
   draw();
   return wrap;
@@ -562,7 +543,6 @@ const profile = u => `${COMMUNITY}/u/${u}`;
 
 function sectionState(k) {
   if (PART) return k === PART ? 'current' : 'hidden';
-  if (active === 'review') return isSkipped(k) ? 'skipped' : 'done';
   if (k === active) return 'current';
   if (isSkipped(k)) return 'skipped';
   if (ed._done?.[k]) return 'done';
@@ -574,7 +554,6 @@ function renderAll({ scroll = false } = {}) {
   if (PART) {
     renderPartBar();
     renderPartCanvas();
-    renderRail();
     applyProblems();
     if (!scroll) $('#scroll').scrollTop = y;
     return;
@@ -582,12 +561,10 @@ function renderAll({ scroll = false } = {}) {
   renderViewSwitch();
   if (PREVIEW) {
     renderPreview();
-    renderRail();
     return;
   }
   renderReview();
   renderCanvas();
-  renderRail();
   applyProblems();
   renderDupHint();
   renderDue();
@@ -623,6 +600,7 @@ function renderViewSwitch() {
 function renderPreview() {
   $('#review').innerHTML = '';
   const c = $('#canvas');
+  c.hidden = false;
   c.classList.add('as-members');
   c.innerHTML = mdToHtml(lastRender?.markdown || '');
 }
@@ -651,17 +629,19 @@ function headerParts() {
 function renderCanvas() {
   const c = $('#canvas');
   c.classList.remove('as-members');
+  c.hidden = active === 'review';   // Review & post is just the steps; "See it as members will" shows the post
+  if (c.hidden) { c.innerHTML = ''; return; }
   c.innerHTML = '';
   const { dateLine, next } = headerParts();
 
   // Header
-  EDIT = active === 'header';
+  const editing = active === 'header';
   const head = el('section', { class: `sec ${sectionState('header')}`, id: 'sec-header' });
   head.append(fixed('p', {}, el('img', { src: META.images.banner, alt: 'The gaff banner' })));
   const dateP = fixed('p', { id: 'date-line' }, el('strong', {}, dateLine));
   // Everything worked out and nothing missing: one line with a tick, and "Looks right, continue".
-  const compact = EDIT && !headerOpen && !sectionProblems('header').length;
-  head.append(EDIT && !compact ? dateP : titleRow(dateP, compact ? null : statePill('header')));
+  const compact = editing && !headerOpen && !sectionProblems('header').length;
+  head.append(editing && !compact ? dateP : titleRow(dateP, compact ? null : headerStatus()));
   if (compact) {
     const prev = ed.previous_edition;
     head.append(el('div', { class: 'header-summary' },
@@ -673,7 +653,7 @@ function renderCanvas() {
     const bar = actionsBar('header');
     bar.querySelector('#mark-header').textContent = 'Looks right, continue →';
     head.append(bar);
-  } else if (EDIT) {
+  } else if (editing) {
     // The header step is a few plain questions, each with a short explanation.
     const autoIssue = (dateLine.match(/Issue #(\S+)/) || [])[1] || '';
     head.append(el('div', { class: 'questions' },
@@ -690,12 +670,12 @@ function renderCanvas() {
         linkInput('posted_url', 'Paste the link here after posting'))));
     head.append(actionsBar('header'));
   }
-  c.append(head);
+  c.append(sectionState('header') === 'done' ? doneCard('header', 'The header', null, dateLine) : head);
 
   // Standard sections
   for (const s of STEPS.slice(1, 5)) c.append(renderSection(s));
 
-  // Extra sections, then a placeholder to add more
+  // Tech News
   c.append(renderExtras());
 
   // A numbered circle outside the post beside each section: ✓ done, – skipped, ! needs a look.
@@ -710,7 +690,6 @@ function renderCanvas() {
   }
 
   // Footer
-  EDIT = false;
   const prev = ed.previous_edition;
   c.append(fixed('hr', {}), fixed('h2', {}, 'Thanks for reading!'),
     fixed('p', {}, prev ? el('a', { href: prev, target: '_blank', rel: 'noopener' }, 'Previous Edition') : el('span', { class: 'missing' }, 'Previous Edition (link needed)'), ` | Next Edition (${next})`));
@@ -770,19 +749,11 @@ function linkInput(path, placeholder) {
   return el('div', { class: 'link-row' }, inp, paste, open);
 }
 
-// Where a section stands, shown on its heading line: "✓ Done [Edit]", "Skipped this week [Include it]"…
-function statePill(k) {
-  if (PART || active === 'review') return null;
-  const st = sectionState(k);
-  const filled = k === 'header' || (k === 'extras' ? (ed.sections || []).some(hasContent) : hasContent(ed[k]));
-  const cfg = {
-    done: ['✓ Done', 'Edit'],
-    upcoming: filled ? ['Not ticked yet', 'Open'] : ['Not started yet', 'Start it now'],
-  }[st];
-  if (!cfg) return null;
-  return el('div', { class: `sec-status ${st}` },
-    el('span', { class: 'sec-status-text' }, cfg[0]),
-    el('button', { type: 'button', class: 'status-btn', 'aria-label': `${cfg[1]}: ${STEP_BY[k].label}`, onclick: () => openStep(k) }, cfg[1]));
+// The Header, when you're on another step and it isn't ticked yet: "Not ticked yet [Open]" (sections use cards).
+function headerStatus() {
+  if (sectionState('header') !== 'upcoming') return null;
+  return el('div', { class: 'sec-status upcoming' }, el('span', { class: 'sec-status-text' }, 'Not ticked yet'),
+    el('button', { type: 'button', class: 'status-btn', 'aria-label': 'Open: Header', onclick: () => openStep('header') }, 'Open'));
 }
 
 const titleRow = (heading, status) => el('div', { class: 'sec-title-row' }, heading, status);
@@ -805,24 +776,20 @@ function authorInput(path, value) {
   return [inp, btn];
 }
 
-function byLine(k) {
-  const author = ed[k]?.author || META.authors[k] || '';
-  if (EDIT) return el('p', { class: 'byline by-line' }, el('em', {}, 'by @'), authorInput(`${k}.author`, author));
-  return fixed('p', { class: 'byline' }, el('em', {}, 'by ', el('a', { href: profile(author), target: '_blank', rel: 'noopener' }, '@' + author)));
-}
+const byLine = k => el('p', { class: 'byline by-line' }, el('em', {}, 'by @'), authorInput(`${k}.author`, ed[k]?.author || META.authors[k] || ''));
 
 function renderSection(s) {
   const k = s.key;
   ed[k] = ed[k] || {};
   const d = ed[k];
   const st = sectionState(k);
-  EDIT = st === 'current';
-  if (st === 'upcoming' && !hasContent(d)) return todoCard(s);
+  if (st === 'upcoming') return hasContent(d) ? progressCard(s) : todoCard(s);
   if (st === 'skipped') return skippedCard(s);
-  // An open section always shows at least one empty item, so its placeholders are visible straight away.
-  if (EDIT && s.list && !(d[s.list] || []).length) d[s.list] = [{}];
+  if (st === 'done') return doneCard(k, d.title || s.title, d.author || META.authors[k], doneSummary(k));
+  // The open section: it always shows at least one empty item, so its boxes are visible straight away.
+  if (s.list && !(d[s.list] || []).length) d[s.list] = [{}];
   const box = el('section', { class: `sec ${st}`, id: `sec-${k}` }, fixed('hr', {}),
-    titleRow(fixed('h2', {}, d.title || s.title), statePill(k)), byLine(k), EDIT && findLink(k), fromNote(k));
+    titleRow(fixed('h2', {}, d.title || s.title)), byLine(k), fromNote(k));
 
   if (k === 'happenings') {
     (d.stories ||= []).forEach((it, i) => {
@@ -831,35 +798,33 @@ function renderSection(s) {
       box.append(itemCard(k, 'stories', i, t, linkChip(`happenings.stories.${i}.link`, t),
         mdSlot(`happenings.stories.${i}.quote`, 'Paste the post here, straight from the community or Google Docs', { tag: 'blockquote' })));
     });
-    if (EDIT) box.append(addButton(k, 'stories', '+ Add another story', {}));
-    if (EDIT || (d.buzzing || []).length) {
-      box.append(fixed('p', {}, el('strong', {}, 'See what’s been buzzing on our Community this week:')),
-                 linesSlot(k, 'buzzing', 'links', 'Paste links to this week’s busy threads, one per line. Each title is worked out from its link, and you can click it to edit.'),
-                 EDIT && el('div', { id: 'dup-hint' }));
-    }
+    box.append(addButton(k, 'stories', 'Add another story', 'For each story this week'),
+               fixed('p', {}, el('strong', {}, 'See what’s been buzzing on our Community this week:')),
+               linesSlot(k, 'buzzing', 'links', 'Paste links to this week’s busy threads, one per line. Each title is worked out from its link, and you can click it to edit.'),
+               el('div', { id: 'dup-hint' }));
   }
 
   if (k === 'say_hello') {
     box.append(fixed('p', {}, el('img', { src: META.images.say_hello, alt: 'Say Hello picture' })),
-               mdSlot('say_hello.intro', '', { defaultText: META.defaults.say_hello_intro }));
+               standardText('say_hello.intro', META.defaults.say_hello_intro));
     let picked = false;
     (d.members ||= []).forEach((it, i) => {
       if (hideItem(k, 'members', i)) return;
-      if (EDIT && !it.avatar) { it.avatar = randomAvatar(d.members[i - 1]?.avatar); picked = true; }
+      if (!it.avatar) { it.avatar = randomAvatar(d.members[i - 1]?.avatar); picked = true; }
       const t = textSlot(`say_hello.members.${i}.title`, 'Their intro thread title (or paste the link to it)', { cls: 'title-slot', linkable: true, paste: true });
-      box.append(itemCard(k, 'members', i, avatarView(it.avatar), t,
+      box.append(itemCard(k, 'members', i, avatarView(it.avatar), findIntroHelp(), t,
         linkChip(`say_hello.members.${i}.link`, t),
         textSlot(`say_hello.members.${i}.greeting`, 'Greeting, e.g. Hiya and welcome to the community @username', { cls: 'greeting' }),
         mdSlot(`say_hello.members.${i}.quote`, 'Paste their post here', { tag: 'blockquote' })));
     });
     if (picked) changed();   // keep the randomly picked avatars with the draft
-    if (EDIT) box.append(addButton(k, 'members', '+ Add another new member', {}));
-    box.append(mdSlot('say_hello.outro', '', { defaultText: META.defaults.say_hello_outro }));
+    box.append(addButton(k, 'members', 'Add another new member', 'For each new member this week'));
+    box.append(standardText('say_hello.outro', META.defaults.say_hello_outro));
   }
 
   if (k === 'giffgaffiversary') {
     box.append(fixed('p', {}, el('img', { src: META.images.giffgaffiversary, alt: 'giffgaffiversary picture' })),
-               mdSlot('giffgaffiversary.intro', '', { defaultText: META.defaults.giffgaffiversary_intro }));
+               standardText('giffgaffiversary.intro', META.defaults.giffgaffiversary_intro));
     (d.posts ||= []).forEach((it, i) => {
       if (hideItem(k, 'posts', i)) return;
       const t = textSlot(`giffgaffiversary.posts.${i}.title`, 'Their anniversary thread title (or paste the link to it)', { cls: 'title-slot', linkable: true, paste: true });
@@ -867,7 +832,7 @@ function renderSection(s) {
         textSlot(`giffgaffiversary.posts.${i}.greeting`, 'Greeting, e.g. Congratulations @username!', { cls: 'greeting' }),
         mdSlot(`giffgaffiversary.posts.${i}.quote`, 'Paste their post here', { tag: 'blockquote' })));
     });
-    if (EDIT) box.append(addButton(k, 'posts', '+ Add another anniversary', {}));
+    box.append(addButton(k, 'posts', 'Add another anniversary', 'For each giffgaffiversary this week'));
     const author = d.author || META.authors.giffgaffiversary;
     box.append(fixed('p', {}, el('strong', {}, `If it’s YOUR giffgaffiversary, please let the team know by sending a private message to `,
       el('a', { class: 'mention', href: profile(author), target: '_blank', rel: 'noopener' }, '@' + author))));
@@ -876,43 +841,33 @@ function renderSection(s) {
   if (k === 'photo_of_the_week') {
     box.append(fixed('p', {}, el('img', { src: META.images.photo_of_the_week, alt: 'Photo of the Week banner' })));
     const title = textSlot('photo_of_the_week.photo_title', 'paste the photo thread link', {
-      cls: 'inline-slot bold', tag: 'span', linkable: true, linkPath: 'photo_of_the_week.link' })
-      || el('span', { class: 'missing' }, 'photo title');
+      cls: 'inline-slot bold', tag: 'span', linkable: true, linkPath: 'photo_of_the_week.link' });
     const byName = String(d.by || '').replace(/^@/, '');
-    const whoSlot = EDIT && textSlot('photo_of_the_week.by', 'who took it', { cls: 'inline-slot', tag: 'span', strip: '@', userLink: true });
-    const by = EDIT
-      ? [el('span', { class: 'fixed' }, ' by @'), whoSlot]
-      : [' by ', byName ? el('a', { class: 'mention', href: profile(byName), target: '_blank', rel: 'noopener' }, '@' + byName) : el('span', { class: 'missing' }, '@username')];
-    box.append(el('p', {}, el('span', { class: 'fixed' }, 'This week’s featured photo is '), title, ...by));
-    if (EDIT && (!d.photo_title || !byName)) {
+    const whoSlot = textSlot('photo_of_the_week.by', 'who took it', { cls: 'inline-slot', tag: 'span', strip: '@', userLink: true });
+    box.append(el('p', {}, el('span', { class: 'fixed' }, 'This week’s featured photo is '), title, el('span', { class: 'fixed' }, ' by @'), whoSlot));
+    if (!d.photo_title || !byName) {
       box.append(el('div', { class: 'paste-row' },
         !d.photo_title && pasteButton('Paste the photo link', title.pasteInto),
         !byName && pasteButton('Paste who took it', whoSlot.pasteInto)));
     }
-    box.append(linkChip('photo_of_the_week.link', title, 'Add the photo thread link'));
-    if (EDIT || (d.comments || []).length) {
-      box.append(fixed('p', {}, el('strong', {}, 'See what fellow members are saying:')),
-                 linesSlot(k, 'comments', 'comments', 'Paste comments, one per line:  “comment” — @username'));
-    }
-    const imgs = linesSlot(k, 'images', 'images', 'Right-click the photo on the community, choose “Copy image address”, and paste it here');
-    if (imgs) box.append(EDIT ? el('p', { class: 'slot-label' }, 'The photo') : null, imgs);
-    const outro = mdSlot('photo_of_the_week.outro', 'A few words to finish the section');
-    if (outro) box.append(EDIT ? el('p', { class: 'slot-label' }, 'Closing words (optional)') : null, outro);
+    box.append(linkChip('photo_of_the_week.link', title));
+    box.append(fixed('p', {}, el('strong', {}, 'See what fellow members are saying:')),
+               linesSlot(k, 'comments', 'comments', 'Paste comments, one per line:  “comment” — @username'),
+               el('p', { class: 'slot-label' }, 'The photo'),
+               linesSlot(k, 'images', 'images', 'Right-click the photo on the community, choose “Copy image address”, and paste it here'),
+               el('p', { class: 'slot-label' }, 'Closing words (optional)'),
+               mdSlot('photo_of_the_week.outro', 'A few words to finish the section'));
   }
 
-  if (EDIT) box.append(actionsBar(k));
+  box.append(actionsBar(k));
   return box;
 }
 
-// Where to find this section's posts on the community, newest first, in a new tab.
-const FIND = {
-  say_hello: { url: `${COMMUNITY}/t/welcome-and-join?sort=newest`, text: 'Find new members’ intro posts on the community' },
-};
-function findLink(k) {
-  const f = FIND[k];
-  return f && el('p', { class: 'find-link' },
-    el('a', { href: f.url, target: '_blank', rel: 'noopener' }, f.text, ' ↗', el('span', { class: 'sr-only' }, ' (opens in a new tab)')));
-}
+// Above each new member's title box: where to find their intro post (newest first, in a new tab).
+const NEW_MEMBERS = `${COMMUNITY}/t/welcome-and-join?sort=newest`;
+const findIntroHelp = () => el('p', { class: 'find-help' }, 'Find their intro post: ',
+  el('a', { href: NEW_MEMBERS, target: '_blank', rel: 'noopener' }, 'new members on the community ↗', el('span', { class: 'sr-only' }, ' (opens in a new tab)')),
+  ', then copy its link and press Paste.');
 
 // A section nobody has started yet: what it's for, who writes it, and one obvious button.
 function todoCard(s) {
@@ -925,6 +880,41 @@ function todoCard(s) {
       el('div', { class: 'todo-actions' },
         el('button', { class: 'btn primary big', type: 'button', 'aria-label': `Start ${s.label}`, onclick: () => openStep(k) }, `Start ${s.label} →`),
         s.toggle && el('button', { class: 'btn big', type: 'button', 'aria-label': `Skip ${s.label} this week`, onclick: () => skip(k) }, 'Skip this week'))));
+}
+
+// A finished section: one green line saying what's in it, with Edit (or amber if something now needs a look).
+function doneCard(k, title, author, summary) {
+  const warn = stepStatus(k) === 'warn';
+  const name = String(author || '').replace(/^@/, '');
+  return el('section', { class: `sec done done-card ${warn ? 'needs-look' : ''}`, id: `sec-${k}` },
+    el('div', { class: 'done-box' },
+      el('div', { class: 'done-text' },
+        el('h2', {}, el('span', { class: 'done-tick', 'aria-hidden': 'true' }, warn ? '! ' : '✓ '), title),
+        el('p', {}, name && ['by ', el('a', { href: profile(name), target: '_blank', rel: 'noopener' }, '@' + name), ' · '],
+          summary, warn ? ' · ticked, but something needs a look' : ' · done')),
+      el('button', { type: 'button', class: 'btn big', 'aria-label': `Edit ${STEP_BY[k].label}`, onclick: () => openStep(k) }, 'Edit')));
+}
+
+// What a finished section holds, in a few words: "2 stories · 5 buzzing links", "1 new member"…
+function doneSummary(k) {
+  const d = ed[k] || {};
+  const count = (list, one, many) => { const n = (list || []).filter(hasContent).length; return `${n} ${n === 1 ? one : many}`; };
+  if (k === 'happenings') return [count(d.stories, 'story', 'stories'), (d.buzzing || []).length && count(d.buzzing, 'buzzing link', 'buzzing links')].filter(Boolean).join(' · ');
+  if (k === 'say_hello') return count(d.members, 'new member', 'new members');
+  if (k === 'giffgaffiversary') return count(d.posts, 'anniversary', 'anniversaries');
+  if (k === 'photo_of_the_week') return d.photo_title ? `“${d.photo_title}”${d.by ? ` by @${String(d.by).replace(/^@/, '')}` : ''}` : 'photo added';
+  if (k === 'extras') { const n = (ed.sections || []).filter(storyIn).length; return `${n} ${n === 1 ? 'story' : 'stories'}`; }
+  return '';
+}
+
+// A section started but not ticked off yet: who writes it, and "Carry on".
+function progressCard(s, title = ed[s.key]?.title || s.title, author = ed[s.key]?.author || META.authors[s.key] || '') {
+  const k = s.key;
+  return el('section', { class: 'sec upcoming progress', id: `sec-${k}` },
+    el('div', { class: 'prog-card' },
+      el('div', { class: 'prog-text' }, el('h2', {}, title),
+        el('p', {}, author && ['by ', el('a', { href: profile(author), target: '_blank', rel: 'noopener' }, '@' + author), ' · '], 'in progress, not ticked off yet')),
+      el('button', { class: 'btn primary big', type: 'button', 'aria-label': `Carry on with ${s.label}`, onclick: () => openStep(k, { untick: false }) }, 'Carry on →')));
 }
 
 // A skipped section: grey stripes, a "Skipped this week" badge and the title crossed out, so it's
@@ -940,58 +930,75 @@ function skippedCard(s) {
       el('button', { class: 'btn big', type: 'button', 'aria-label': `Include ${s.label} after all`, onclick: () => openStep(k) }, 'Include it after all')));
 }
 
+// Something written in an extra section beyond its title and author (only then does it go in the post).
+const storyIn = x => ['headline', 'body', 'source', 'image'].some(f => String(x?.[f] || '').trim());
+const EXTRA = { title: 'Tech News', author: 'benballer' };
+
 function renderExtras() {
   const st = sectionState('extras');
-  EDIT = st === 'current';
-  const wrap = el('div', { class: `sec extras-wrap ${st}`, id: 'sec-extras' });
   const list = (ed.sections ||= []);
-  if (!EDIT && list.some(hasContent) && active !== 'review') {
-    wrap.append(titleRow(el('span', { class: 'extras-label' }, 'Extra sections'), statePill('extras')));
+  if (st !== 'current') {
+    // On another step: the same cards as every other section.
+    const filled = list.filter(storyIn);
+    if (st === 'skipped') return skippedCard(STEP_BY.extras);
+    if (!filled.length) return extrasCard();
+    const title = filled.map(x => x.title || 'Extra section').join(' · ');
+    return st === 'done' ? doneCard('extras', title, filled[0].author, doneSummary('extras'))
+      : progressCard(STEP_BY.extras, title, filled[0].author || EXTRA.author);
   }
+  // The section you're on: Tech News ready to fill in, like the other sections.
+  if (!list.length) list.push({ ...EXTRA });
+  const wrap = el('div', { class: `sec extras-wrap ${st}`, id: 'sec-extras' });
   const note = fromNote('extras');
   if (note) wrap.append(note);
   list.forEach((sec, i) => {
-    if (!EDIT && !hasContent(sec)) return;
-    const box = el('div', { class: 'item extra' });
-    if (EDIT) box.append(itemTools('sections', i, list));
-    const title = textSlot(`sections.${i}.title`, 'Section title, e.g. Tech News', { cls: 'inline-slot', tag: 'span' });
-    box.append(fixed('hr', {}), el('h2', {}, title || '(untitled section)'));
-    if (EDIT) box.append(el('p', { class: 'byline by-line' }, el('em', {}, 'by @'), authorInput(`sections.${i}.author`, sec.author)));
-    else if (sec.author) box.append(fixed('p', { class: 'byline' }, el('em', {}, 'by ', el('a', { href: profile(String(sec.author).replace(/^@/, '')), target: '_blank', rel: 'noopener' }, '@' + String(sec.author).replace(/^@/, '')))));
-    if (EDIT) box.append(linkChip(`sections.${i}.image`, null, 'Add a picture at the top (optional)'));
+    const box = el('div', { class: i ? 'item extra' : 'extra' });
+    // Tech News has a fixed title, like the other sections (an older draft's further sections keep their own).
+    if (i === 0) box.append(fixed('h2', {}, sec.title || EXTRA.title));
+    else box.append(itemTools('sections', i, list), fixed('hr', {}), el('h2', {}, textSlot(`sections.${i}.title`, 'Section title, e.g. Gaming News', { cls: 'inline-slot', tag: 'span' })));
+    box.append(el('p', { class: 'byline by-line' }, el('em', {}, 'by @'), authorInput(`sections.${i}.author`, sec.author)));
     if (sec.image) box.append(fixed('p', {}, el('img', { src: sec.image, alt: 'Section picture' })));
-    const body = mdSlot(`sections.${i}.body`, 'Paste or write the section here');
-    if (body) box.append(body);
+    // The story: a bold title, the story itself, and where it came from.
+    box.append(el('p', { class: 'slot-label' }, 'Story title'),
+      textSlot(`sections.${i}.headline`, 'Story title, e.g. Cyber Threat Sparks Race to Protect UK Fridges and Freezers', { cls: 'title-slot bold', paste: true }),
+      el('p', { class: 'slot-label' }, 'The story'),
+      mdSlot(`sections.${i}.body`, 'Paste the story here, including any question for members'),
+      el('p', { class: 'slot-label' }, 'Source'),
+      linkInput(`sections.${i}.source`, 'Paste the link to where the story came from'));
     wrap.append(box);
   });
-  if (EDIT) {
-    wrap.append(addSectionPlaceholder(list.length ? 'Add another section' : 'Add a section here (e.g. Tech News)'));
-    wrap.append(actionsBar('extras'));
-  } else if (active !== 'review') {
-    // Placeholder visible from any step: jump to Extras and add one.
-    wrap.append(addSectionPlaceholder(list.length ? 'Add another section' : 'Add a section here (e.g. Tech News)', true));
-  }
+  wrap.append(actionsBar('extras'));
   return wrap;
 }
 
-function addSectionPlaceholder(label, jump = false) {
-  return el('button', { class: 'add-section', type: 'button', onclick: () => {
-    (ed.sections ||= []).push({ title: '', author: '', body: '' });
-    if (!PART && (jump || active !== 'extras')) { delete (ed._done ||= {}).extras; active = 'extras'; }
-    changed();
-    renderAll();
-    const i = ed.sections.length - 1;
-    const t = document.querySelector(`[data-path="sections.${i}.title"]`);
-    t?.scrollIntoView({ behavior: SMOOTH, block: 'center' });
-    t?.focus();
-  } }, el('span', { class: 'plus' }, '+'), el('span', {}, label), el('small', {}, 'Goes after Photo of the Week, with its own title, author and body'));
+// "Start Tech News" from any step: open it and put the cursor in the story title.
+function startTechNews() {
+  if (!(ed.sections ||= []).length) ed.sections.push({ ...EXTRA });
+  if (!PART && active !== 'extras') { delete (ed._done ||= {}).extras; active = 'extras'; }
+  changed();
+  renderAll();
+  const t = document.querySelector('[data-path="sections.0.headline"]');
+  t?.scrollIntoView({ behavior: SMOOTH, block: 'center' });
+  t?.focus();
+}
+
+// Tech News not started, when you're on another step: the same card as the other sections.
+function extrasCard() {
+  return el('section', { class: 'sec upcoming todo', id: 'sec-extras' },
+    el('div', { class: 'todo-card' },
+      el('h2', {}, EXTRA.title),
+      el('p', { class: 'todo-about' }, 'by ', el('a', { href: profile(EXTRA.author), target: '_blank', rel: 'noopener' }, '@' + EXTRA.author),
+        ' · a story title, the story and its source'),
+      el('div', { class: 'todo-actions' },
+        el('button', { class: 'btn primary big', type: 'button', 'aria-label': 'Start Tech News', onclick: startTechNews }, 'Start Tech News →'),
+        el('button', { class: 'btn big', type: 'button', 'aria-label': 'Skip Tech News this week', onclick: () => skip('extras') }, 'Skip this week'))));
 }
 
 // An empty item is only shown when it's the only one, or you've just added it.
 function hideItem(k, listKey, i) {
   const list = ed[k][listKey];
   if (hasContent(list[i])) return false;
-  return !EDIT || (list.some(hasContent) && !openItems.has(`${k}.${listKey}.${i}`));
+  return list.some(hasContent) && !openItems.has(`${k}.${listKey}.${i}`);
 }
 
 const ITEM_LABELS = { stories: 'Story', members: 'New member', posts: 'Anniversary', sections: 'Section' };
@@ -1011,12 +1018,10 @@ function foldable(k, listKey, i) {
 }
 
 function itemCard(k, listKey, i, ...kids) {
-  if (EDIT && foldable(k, listKey, i)) return foldedItem(k, listKey, i);
+  if (foldable(k, listKey, i)) return foldedItem(k, listKey, i);
   const card = el('div', { class: 'item' });
-  if (EDIT) {
-    card.append(itemTools(listKey, i, ed[k][listKey]));
-    card.addEventListener('focusin', () => openItems.add(`${k}.${listKey}.${i}`));
-  }
+  card.append(itemTools(listKey, i, ed[k][listKey]));
+  card.addEventListener('focusin', () => openItems.add(`${k}.${listKey}.${i}`));
   card.append(...kids.filter(Boolean));
   return card;
 }
@@ -1058,16 +1063,17 @@ function itemTools(listKey, i, list) {
   return el('div', { class: 'item-head' }, el('h3', { class: 'item-name' }, `${name} ${i + 1}`), tools);
 }
 
-function addButton(k, listKey, label, blank) {
-  return el('button', { class: 'add-btn', type: 'button', onclick: () => {
-    (ed[k][listKey] ||= []).push({ ...blank });
+// A dashed "+ Add another …" bar under the list, the same look as "+ Add a section here".
+function addButton(k, listKey, label, note) {
+  return el('button', { class: 'add-section', type: 'button', onclick: () => {
+    (ed[k][listKey] ||= []).push({});
     const i = ed[k][listKey].length - 1;
     openItems.add(`${k}.${listKey}.${i}`);
     changed();
     renderAll();
     const first = document.querySelector(`[data-path^="${k}.${listKey}.${i}."].text-slot`);
     first?.focus();
-  } }, label);
+  } }, el('span', { class: 'plus', 'aria-hidden': 'true' }, '+'), el('span', {}, label), el('small', {}, note));
 }
 
 // Each new member gets a stock avatar at random, different from the member above where possible.
@@ -1093,17 +1099,16 @@ function actionsBar(k) {
   }
   return el('div', { class: 'sec-actions' }, problems,
     el('button', { class: 'btn primary big', type: 'button', id: `mark-${k}`, onclick: () => markDone(k) }, markLabel(k)),
-    s.toggle && el('button', { class: 'btn big', type: 'button', onclick: () => skip(k) }, 'Skip this week'));
+    (s.toggle || k === 'extras') && el('button', { class: 'btn big', type: 'button', onclick: () => skip(k) }, 'Skip this week'));
 }
 
 function markLabel(k) {
-  if (k === 'extras' && !(ed.sections || []).some(hasContent)) return 'No extras – continue →';
   return `Mark ${STEP_BY[k].label} done & continue →`;
 }
 
 /* ------------------------------------------------------------------ */
 /* Sending parts: a contributor writes one section and sends it to the */
-/* editor as a small file or link; the editor adds it to the edition.  */
+/* editor as a link; the editor adds it to the edition.               */
 /* ------------------------------------------------------------------ */
 
 let PART = null;   // contributor mode: the one section being written (from ?part=...)
@@ -1149,14 +1154,13 @@ function renderPartBar() {
     oninput: e => { ed.date = e.target.value; changed(); } });
   nav.append(el('div', { class: 'part-bar' },
     el('span', {}, 'You’re writing '), pick, el('span', {}, ' for the gaff on '), date,
-    el('span', { class: 'muted' }, ' When it’s ready, click Send my part and send the file or link to the editor.'),
+    el('span', { class: 'muted' }, ' When it’s ready, click Send my part and send the link to the editor.'),
     el('a', { href: siteUrl() }, 'Open the full editor')));
 }
 
 function renderPartCanvas() {
   const c = $('#canvas');
   c.innerHTML = '';
-  EDIT = false;
   c.append(fixed('p', {}, el('img', { src: META.images.banner, alt: 'The gaff banner' })),
            fixed('p', { id: 'date-line' }, el('strong', {}, headerParts().dateLine)));
   c.append(PART === 'extras' ? renderExtras() : renderSection(STEP_BY[PART]));
@@ -1250,12 +1254,11 @@ function confirmPart(p) {
   const body = $('#done-body');
   const { label, what } = partSummary(p);
   const k = p.section;
-  const existing = k === 'extras' ? (ed.sections || []).some(hasContent) : hasContent(ed[k]);
+  const existing = k === 'extras' ? (ed.sections || []).some(storyIn) : hasContent(ed[k]);
   const otherDate = p.date && ed.date && p.date !== ed.date;
-  const fmt = d => { const t = Gaff.parseDate(d); return t === null ? d : Gaff.ordinalDate(t); };
   body.innerHTML = `<h3 id="dialog-title">Add @${esc(p.from || 'someone')}’s ${esc(label)}?</h3>
-    <p>${esc(what)}, written for the gaff on ${esc(fmt(p.date) || 'an unknown date')}.</p>
-    ${otherDate ? `<p class="part-error">Your edition is for ${esc(fmt(ed.date))}, not ${esc(fmt(p.date))}. Check this is the right week.</p>` : ''}
+    <p>${esc(what)}, written for the gaff on ${esc(niceDate(p.date) || 'an unknown date')}.</p>
+    ${otherDate ? `<p class="part-error">Your edition is for ${esc(niceDate(ed.date))}, not ${esc(niceDate(p.date))}. Check this is the right week.</p>` : ''}
     ${existing ? `<p>You already have content in ${esc(label)}. Add theirs after what’s there, or replace it?</p>` : ''}
     <div class="dialog-actions">
       <button class="btn">Cancel</button>
@@ -1368,7 +1371,7 @@ function goTo(k) {
 function openStep(k, { untick = true } = {}) {
   if (k !== active) { openItems.clear(); headerOpen = false; }
   if (untick && ed._done?.[k]) delete ed._done[k];
-  if (isSkipped(k)) ed[k].enabled = true;
+  if (isSkipped(k) && STEP_BY[k].toggle) ed[k].enabled = true;
   active = k;
   changed();
   renderAll({ scroll: true });
@@ -1389,7 +1392,7 @@ function showBlocked(k, probs, lead) {
     const empty = sel => [...document.querySelectorAll(sel)].find(s => !s.textContent.trim());
     target = empty(`#sec-${k} .item .title-slot[contenteditable], #sec-${k} .item .inline-slot[contenteditable]`)
       || empty(`#sec-${k} .item [contenteditable]`)
-      || empty(`#sec-${k} [contenteditable]:not(.has-default)`);
+      || empty(`#sec-${k} [contenteditable]`);
     if (target) hint(target, 'Fill this in first');
   }
   const box = target || document.getElementById(`problems-${k}`);
@@ -1414,7 +1417,8 @@ async function markDone(k) {
 function skip(k) {
   const here = active === k;
   undoable(`${STEP_BY[k].label} skipped this week.`, () => {
-    ed[k] = { ...(ed[k] || {}), enabled: false };
+    if (k === 'extras') ed.sections = [];   // Tech News has no on/off switch: skipping takes its story out
+    else ed[k] = { ...(ed[k] || {}), enabled: false };
     ed._done = { ...(ed._done || {}), [k]: true };
     if (here) active = nextStepKey(k);
   });
@@ -1479,11 +1483,12 @@ function renderReview() {
   box.append(el('div', { class: 'review-card' },
     el('h2', { class: 'step-title' }, 'Review & post'),
     el('ol', { class: 'post-steps' },
-      pstep(1, ready, 'Check everything’s in', ready ? 'Every part is ticked off. The post below is exactly what will go on the community.' : null, fixBox || parts),
+      pstep(1, ready, 'Check everything’s in', ready ? 'Every part is ticked off. To see the post as members will, use the switch at the top.' : null, fixBox || parts),
       pstep(2, copiedTitle.done, 'Copy the title', 'Then paste it into the title box on the community.',
         el('button', { class: 'btn primary big', type: 'button', onclick: e => (ready ? copyTitle(e.target) : notYet()) }, 'Copy title')),
-      pstep(3, isBuilt, 'Copy the post', 'Saves this week’s gaff, then copies it. Paste it into the big box under the title, and post it.',
-        el('button', { class: 'btn primary big', type: 'button', onclick: e => (ready ? copyPost(e.target) : notYet()) }, 'Copy post'), where),
+      pstep(3, isBuilt, 'Copy the post', `Saves this week’s gaff, then copies it. Paste it into the big box under the title, and post it.${ready ? ' This is what you’re copying:' : ''}`,
+        el('button', { class: 'btn primary big', type: 'button', onclick: e => (ready ? copyPost(e.target) : notYet()) }, 'Copy post'), where,
+        ready && el('pre', { class: 'md-copy', tabindex: '0', 'aria-label': 'The Markdown you’re copying' }, lastRender?.markdown || '')),
       pstep(4, posted, 'Paste the link to your new post', ['Open your post on the community (', gaffListLink('it’s at the top of this list'), '), copy the address from the top of the browser, and paste it here. Next week’s gaff uses it for “Previous Edition”.'],
         linkInput('posted_url', 'Paste the link to your post')))));
 }
@@ -1515,34 +1520,8 @@ async function copyPost(btn) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Markdown rail, refresh, autosave                                    */
+/* Refresh and autosave                                                */
 /* ------------------------------------------------------------------ */
-
-function partMatches(key) {
-  if (active === 'review') return false;
-  if (active === 'header') return key === 'header' || key === 'footer';
-  if (active === 'extras') return key.startsWith('sections.');
-  return key === active;
-}
-
-// The Markdown strip only shows sections once they're ticked off (a contributor sees their part as they write).
-const partStep = key => (key === 'footer' ? 'header' : key.startsWith('sections.') ? 'extras' : key);
-const ticked = k => !!ed._done?.[k] && !isSkipped(k);
-const railParts = () => (lastRender?.parts || []).filter(p => PART || ticked(partStep(p.key)));
-const railMarkdown = () => { const parts = railParts(); return parts.length ? Gaff.joinParts(parts) : ''; };
-
-function renderRail() {
-  const out = $('#rail-md');
-  out.innerHTML = '';
-  for (const part of railParts()) {
-    out.append(el('div', { class: `md-part ${partMatches(part.key) ? 'active' : ''}`, 'data-key': part.key }, el('pre', {}, part.markdown)));
-  }
-  const waiting = PART ? [] : STEPS.filter(s => !ed._done?.[s.key]).map(s => s.label);
-  if (waiting.length) {
-    out.append(el('p', { class: 'md-waiting' }, `Shows here once ticked off: ${waiting.join(', ')}.`));
-  }
-  if ($('#studio').classList.contains('rail-open')) out.querySelector('.md-part.active')?.scrollIntoView({ block: 'nearest' });
-}
 
 async function refresh() {
   // The "anything to say under the date" line was removed; drop any left in older drafts
@@ -1559,9 +1538,6 @@ async function refresh() {
   const { dateLine } = headerParts();
   const dl = $('#date-line strong');
   if (dl) dl.textContent = dateLine;
-  const mark = $('#mark-extras');
-  if (mark) mark.textContent = markLabel('extras');
-  renderRail();
   if (PREVIEW) return renderPreview();
   applyProblems();
   renderDupHint();
@@ -1605,18 +1581,6 @@ function changed() {
   scheduleSave();
 }
 
-function setRail(open) {
-  $('#studio').classList.toggle('rail-open', open);
-  document.body.classList.toggle('rail-open', open);   // the top bar follows the same columns
-  const t = $('#rail-toggle');
-  t.textContent = open ? '»' : '«';
-  t.title = open ? 'Collapse the Markdown' : 'Show the Markdown';
-  t.setAttribute('aria-label', t.title);
-  t.setAttribute('aria-expanded', String(open));
-  try { localStorage.setItem('gaff.railOpen', open ? '1' : '0'); } catch { /* storage unavailable */ }
-  if (open) renderRail();
-}
-
 /* ------------------------------------------------------------------ */
 /* Open / new / build                                                  */
 /* ------------------------------------------------------------------ */
@@ -1625,10 +1589,63 @@ async function loadList() {
   const { drafts, editions, backups = {} } = await api('/api/list');
   const stamp = s => `${s.slice(6, 8)}/${s.slice(4, 6)} ${s.slice(9, 11)}:${s.slice(11, 13)}:${s.slice(13, 15)}`;
   $('#open-select').innerHTML = '<option value="">Open a draft…</option>' +
+    (drafts.length ? '<optgroup label="Tidy up"><option value="manage">Manage drafts…</option></optgroup>' : '') +
     (drafts.length ? `<optgroup label="Drafts">${drafts.map(n => `<option value="draft:${n}">${n}</option>`).join('')}</optgroup>` : '') +
     (editions.length ? `<optgroup label="Built editions">${editions.map(n => `<option value="edition:${n}">${n}</option>`).join('')}</optgroup>` : '') +
     Object.entries(backups).map(([d, list]) => list.length
       ? `<optgroup label="Earlier versions of ${d}">${list.map(s => `<option value="backup:${d}/${s}">${d} as at ${stamp(s)}</option>`).join('')}</optgroup>` : '').join('');
+}
+
+// "2026-12-04" → "4th December 2026"
+const niceDate = d => { const t = Gaff.parseDate(d); return t === null ? d : Gaff.ordinalDate(t); };
+
+// Open a draft… → Manage drafts…: delete a draft, or clear the earlier versions kept of one or all of them.
+async function manageDrafts() {
+  const { drafts, backup_counts: counts = {} } = await api('/api/list');
+  const dlg = $('#done-dialog');
+  const anyBackups = Object.values(counts).some(Boolean);
+  $('#done-body').replaceChildren(
+    el('h3', { id: 'dialog-title' }, 'Manage drafts'),
+    el('p', { class: 'manage-note' }, MODE === 'browser' ? 'These are saved in this browser.' : 'These are saved in drafts/ on this computer. Built editions aren’t affected.'),
+    drafts.length ? el('ul', { class: 'manage-list' }, ...drafts.map(d => {
+      const n = counts[d] || 0;
+      return el('li', {},
+        el('span', { class: 'manage-name' }, niceDate(d), d === ed.date ? ' (open now)' : '',
+          el('small', {}, n ? `${n} earlier version${n === 1 ? '' : 's'}` : 'No earlier versions')),
+        n ? el('button', { type: 'button', class: 'btn', 'aria-label': `Clear the earlier versions of ${niceDate(d)}`, onclick: () => tidy('backups', d) }, 'Clear earlier versions') : '',
+        el('button', { type: 'button', class: 'btn danger', 'aria-label': `Delete the ${niceDate(d)} draft`, onclick: () => tidy('draft', d) }, 'Delete draft'));
+    })) : el('p', {}, 'No drafts saved.'),
+    el('div', { class: 'dialog-actions' },
+      anyBackups ? el('button', { type: 'button', class: 'btn', onclick: () => tidy('all-backups', '') }, 'Clear all earlier versions') : '',
+      el('button', { class: 'btn' }, 'Close')));
+  if (!dlg.open) dlg.showModal();
+}
+
+async function tidy(kind, name) {
+  const ask = {
+    draft: `Delete the ${niceDate(name)} draft and its earlier versions?`,
+    backups: `Clear the earlier versions of ${niceDate(name)}? The draft itself stays.`,
+    'all-backups': 'Clear the earlier versions of every draft? The drafts themselves stay.',
+  }[kind];
+  if (!confirm(`${ask}\n\nThis can’t be undone.`)) return;
+  try {
+    await api('/api/delete', { kind, name });
+  } catch (err) {
+    return toast(`Couldn’t delete: ${err.message}`);
+  }
+  if (kind === 'draft' && name === ed.date) {
+    // The open draft has gone: go back to this week's gaff (a fresh one if this was it).
+    ed = await api('/api/latest');
+    ed._done = ed._done || {};
+    Object.keys(attempted).forEach(k => delete attempted[k]);
+    openItems.clear();
+    await refresh();
+    active = firstOpenStep();
+    renderFromTop();
+  }
+  await loadList();
+  toast({ draft: 'Draft deleted.', backups: 'Earlier versions cleared.', 'all-backups': 'All earlier versions cleared.' }[kind]);
+  manageDrafts();
 }
 
 async function openSaved(value) {
@@ -1687,14 +1704,20 @@ function download(name, text, type) {
 }
 
 /* Pictures from community.giffgaff.com don't always load here (the community often refuses
-   pictures shown on other sites). Show a tidy labelled box instead of a broken image; the
-   picture itself still shows on the community. */
+   pictures shown on other sites). Show a tidy labelled box instead of a broken image, with a
+   link to open the picture itself; it still shows on the community. */
+const openPicture = (src, text = 'Open picture') => el('a', { class: 'img-open', href: src, target: '_blank', rel: 'noopener' },
+  `${text} ↗`, el('span', { class: 'sr-only' }, ' (opens in a new tab)'));
 document.addEventListener('error', e => {
   const img = e.target;
   if (!(img instanceof HTMLImageElement) || img.dataset.failed) return;
   img.dataset.failed = '1';
   if (img.closest('.avatar-pic')) { img.closest('.avatar-pic').classList.add('missing'); img.remove(); return; }
-  img.replaceWith(el('span', { class: 'img-missing' }, `${img.alt || 'Picture'} – shows on the community`));
+  const label = `${img.alt || 'Picture'} – shows on the community`;
+  // Inside a box you type in, the picture must stay (it's part of the post): just mark it.
+  if (img.closest('[contenteditable="true"]')) { img.classList.add('img-broken'); img.title = label; return; }
+  const src = img.currentSrc || img.src;
+  img.replaceWith(el('span', { class: 'img-missing' }, label, /^https?:\/\//.test(src) ? openPicture(src) : ''));
 }, true);
 
 /* ------------------------------------------------------------------ */
@@ -1736,17 +1759,15 @@ async function init() {
     }
   }
 
-  $('#open-select').onchange = e => { if (e.target.value) openSaved(e.target.value); e.target.value = ''; };
+  $('#open-select').onchange = e => {
+    const v = e.target.value;
+    e.target.value = '';
+    if (v === 'manage') manageDrafts(); else if (v) openSaved(v);
+  };
   $('#new-btn').onclick = newEdition;
   $('#clear-btn').onclick = clearPage;
   $('#review-btn').onclick = () => goTo('review');
   setInterval(showSaved, 30000);
-  $('#rail-toggle').onclick = () => setRail(!$('#studio').classList.contains('rail-open'));
-  $('#rail-heading').onclick = () => { if (!$('#studio').classList.contains('rail-open')) setRail(true); };
-  $('#rail-copy').onclick = e => (railMarkdown() ? copy(railMarkdown(), e.target, '✓') : toast('Nothing ticked off yet. Sections show in the Markdown once they’re ticked off.'));
-  let open = false;
-  try { open = localStorage.getItem('gaff.railOpen') === '1'; } catch { /* storage unavailable */ }
-  setRail(open);
 }
 
 init().catch(err => {

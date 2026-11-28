@@ -42,8 +42,13 @@
       if (list.length > 2) { try { s.setItem(bk, JSON.stringify(list.slice(-2))); } catch { /* ignore */ } }
     }
     try { s.setItem(k, v); } catch {
-      throw new Error('This browser’s storage is full. Use “Save file” to keep a copy of the draft.');
+      throw new Error('This browser’s storage is full. Delete old drafts under “Open a draft…” → Manage drafts.');
     }
+  }
+  function removeItem(k) {
+    memory.delete(k);
+    const s = storage();
+    try { if (s) s.removeItem(k); } catch { /* blocked */ }
   }
   function readJSON(k, fallback) {
     const raw = getItem(k);
@@ -104,12 +109,22 @@
 
   function listing() {
     const drafts = dates('gaff.draft.');
-    const backups = {};
+    const backups = {}, counts = {};
     for (const d of drafts) {
       const list = readJSON(K.backups(d), []);
-      if (list.length) backups[d] = list.map(b => b.stamp).reverse().slice(0, 15);
+      if (list.length) { backups[d] = list.map(b => b.stamp).reverse().slice(0, 15); counts[d] = list.length; }
     }
-    return { drafts, editions: dates('gaff.edition.'), backups };
+    return { drafts, editions: dates('gaff.edition.'), backups, backup_counts: counts };
+  }
+
+  // Tidy up: a draft (with its earlier versions), one draft's earlier versions, or all of them. Built editions stay.
+  function deleteSaved(kind, name) {
+    if (kind === 'all-backups') { keys('gaff.backups.').forEach(removeItem); return listing(); }
+    if (!NAME.test(name || '')) throw new G.EditionError('bad name');
+    if (kind === 'backups') removeItem(K.backups(name));
+    else if (kind === 'draft') { removeItem(K.draft(name)); removeItem(K.backups(name)); }
+    else throw new G.EditionError('bad kind');
+    return listing();
   }
 
   function openSaved(kind, name) {
@@ -179,6 +194,7 @@
         case '/api/render': return G.renderUi(body || {}, false);
         case '/api/draft': return { saved: saveDraft(body || {}) };
         case '/api/build': return build(body || {});
+        case '/api/delete': return deleteSaved((body || {}).kind, (body || {}).name);
         default: throw new Error('not found');
       }
     } catch (e) {

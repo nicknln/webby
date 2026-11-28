@@ -7,7 +7,6 @@
   --ink: #1d1d1b;
   --muted: #6b6b66;
   --line: #e2e2dd;
-  --hl: #f2f2f2;
   --code-bg: #fafaf7;
   --focus: #333;
   --box: #8f8f8a;          /* edge of boxes you type into (3:1 against white) */
@@ -27,13 +26,13 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #161615; --panel: #1f1f1d; --ink: #ecece8; --muted: #a2a29c; --line: #34342f;
-    --hl: #2a2a2a; --code-bg: #191917; --focus: #bbb; color-scheme: dark;
+    --code-bg: #191917; --focus: #bbb; color-scheme: dark;
     --ok-text: #8fd6a4; --att-bg: #3a2c12; --att-text: #f0b860;
   }
 }
 :root[data-theme="dark"] {
   --bg: #161615; --panel: #1f1f1d; --ink: #ecece8; --muted: #a2a29c; --line: #34342f;
-  --hl: #2a2a2a; --code-bg: #191917; --focus: #bbb; color-scheme: dark;
+  --code-bg: #191917; --focus: #bbb; color-scheme: dark;
   --ok-text: #8fd6a4; --att-bg: #3a2c12; --att-text: #f0b860;
 }
 
@@ -50,24 +49,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
   padding: 4px 10px; cursor: pointer; white-space: nowrap; font-size: 13px; line-height: 1.4;
 }
 .btn:hover { filter: brightness(.96); }
-.btn:disabled { opacity: .45; cursor: not-allowed; filter: none; }
 .btn.primary { background: var(--go); border-color: var(--go); color: #fff; font-weight: 600; padding: 4px 13px; }
-.btn.primary:hover:not(:disabled) { background: var(--go-dark); filter: none; }
-.btn.primary:disabled { background: #9fbfa8; border-color: #9fbfa8; opacity: 1; }
+.btn.primary:hover { background: var(--go-dark); filter: none; }
 .btn.small { padding: 2px 8px; font-size: 12px; }
 .btn.big { padding: 8px 18px; font-size: 14px; min-height: 36px; }
-.icon-btn { background: none; border: 0; color: inherit; cursor: pointer; opacity: .7; font-size: 15px; padding: 2px 4px; }
-.icon-btn:hover { opacity: 1; }
 select { border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; background: var(--panel); color: var(--ink); }
 
 /* ---------- top bar ---------- */
-/* Logo and save status on the left, Open, New edition and Review & build on the right, all one height.
-   The bar uses the same columns as the page below, so its contents line up with the post's edges. */
-.topbar {
-  display: grid; grid-template-columns: 1fr 40px; padding: 8px 0;
-  background: var(--panel); color: var(--ink); border-bottom: 1px solid var(--line);
-}
-body.rail-open .topbar { grid-template-columns: 1fr minmax(300px, 34%); }
+/* Logo and save status on the left, Open, Clear, New edition and Review & build on the right, all one height,
+   lined up with the post's edges below. */
+.topbar { padding: 8px 0; background: var(--panel); color: var(--ink); border-bottom: 1px solid var(--line); }
 .topbar-inner { width: 100%; max-width: 752px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; gap: 8px 16px; }
 .brand { display: flex; align-items: baseline; gap: 8px; flex: none; }
 .logo { font-weight: 700; font-size: 15px; }
@@ -96,34 +87,12 @@ body[data-part] .editor-only { display: none !important; }
 .part-bar .muted { color: var(--muted); }
 .part-bar a { color: inherit; margin-left: auto; }
 
-/* ---------- layout: the post, and the Markdown strip beside it ---------- */
-.studio { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 40px; gap: 1px; background: var(--line); }
-.studio.rail-open { grid-template-columns: 1fr minmax(300px, 34%); }
-.canvas-scroll { position: relative; overflow: auto; background: var(--bg); padding: 20px 16px 120px; color-scheme: light; }   /* relative: keeps hidden screen-reader text inside the scroller */
-
-.rail { background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
-.pane-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); min-height: 46px; }
-.pane-head h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0; flex: 1; }
-.md-toggle { color: var(--muted); font-size: 16px; line-height: 1; min-width: 28px; min-height: 28px; }
-.md-out { overflow: auto; flex: 1; padding: 8px 0; background: var(--code-bg); }
-.md-part { padding: 4px 14px; border-left: 3px solid transparent; }
-.md-part.active { background: var(--hl); border-left-color: #999; }
-.md-waiting { margin: 10px 14px; font-size: 12.5px; line-height: 1.5; color: var(--muted); font-style: italic; }
-.md-part pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
-/* Collapsed: a slim strip with the expand button and Copy */
-.studio:not(.rail-open) .rail .pane-head { flex-direction: column; height: 100%; padding: 10px 0; border-bottom: 0; gap: 12px; }
-.studio:not(.rail-open) .rail h2, .studio:not(.rail-open) #rail-copy { writing-mode: vertical-rl; transform: rotate(180deg); flex: none; }
-.studio:not(.rail-open) .rail h2 { cursor: pointer; }
-.studio:not(.rail-open) #rail-copy { padding: 8px 3px; }
-.studio:not(.rail-open) #rail-md { display: none; }
+/* ---------- layout: the post fills the page below the top bar ---------- */
+.studio { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.canvas-scroll { container-type: inline-size; flex: 1; position: relative; overflow: auto; background: var(--bg); padding: 20px 16px 120px; color-scheme: light; }   /* relative: keeps hidden screen-reader text inside the scroller */
 
 @media (max-width: 720px) {
-  .topbar, body.rail-open .topbar { grid-template-columns: 1fr; }
   .topbar-inner { flex-wrap: wrap; }
-  .studio, .studio.rail-open { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
-  .studio:not(.rail-open) .rail .pane-head { flex-direction: row; height: auto; padding: 8px 14px; }
-  .studio:not(.rail-open) .rail h2, .studio:not(.rail-open) #rail-copy { writing-mode: horizontal-tb; transform: none; }
-  .rail { max-height: 45vh; }
 }
 
 /* The thread's title above the post, like on the community */
@@ -164,6 +133,8 @@ body[data-part] .editor-only { display: none !important; }
 .pbody code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 .pbody .link-box { width: 100%; max-width: 560px; padding: 8px 10px; border: 1px solid var(--box); border-radius: 4px; background: var(--panel); }
 .pbody .review-list { margin: 10px 0 0; }
+.md-copy { margin: 12px 0 0; max-height: 320px; overflow: auto; background: var(--code-bg); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px;
+  white-space: pre-wrap; word-break: break-word; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .missing-box { border-left: 3px solid var(--warn-line); background: var(--att-bg); border-radius: 0 6px 6px 0; padding: 10px 14px; margin: 8px 0 4px; }
 .missing-head { margin: 0; font-weight: 700; color: var(--att-text); }
 .missing-box ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.7; }
@@ -194,15 +165,17 @@ body[data-part] .editor-only { display: none !important; }
 
 /* Parts added for you, and a picture that couldn't load from the community */
 .post .fixed { position: relative; border-radius: 4px; }
-.post .fixed:hover { background: rgba(0, 0, 0, .035); }
 .post .missing { color: #333; background: #f3f3f3; border-radius: 3px; padding: 0 4px; font-style: italic; }
 .post .img-missing {
-  display: inline-flex; align-items: center; padding: 10px 14px; border: 1px dashed var(--box); border-radius: 4px;
+  display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 10px 14px; border: 1px dashed var(--box); border-radius: 4px;
   background: #fafaf8; color: #6b6b66; font: 12.5px var(--font);
 }
+.post .img-open { font: 600 13px var(--font); }
+.post .img-opens { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: -6px 0 12px; }
+.post img.img-broken { min-width: 120px; min-height: 40px; outline: 1px dashed var(--box); }
 
 /* ---------- sections and where you are ---------- */
-.post .sec { position: relative; margin: 40px -12px 0; padding: 0 12px 2px; }
+.post .sec { position: relative; margin: 40px 0 0; }
 .post .sec:first-child { margin-top: 0; }
 .post .sec > hr.fixed:first-of-type { margin: 0 0 16px; }
 /* The section you're working on: a green outline all round, with a tag on its top edge */
@@ -213,17 +186,12 @@ body[data-part] .editor-only { display: none !important; }
   background: var(--go); color: #fff; font: 600 12.5px/1.6 var(--font); padding: 1px 10px; border-radius: 4px;
 }
 .post .sec.current > hr.fixed:first-of-type { display: none; }
-.post .sec.current .sec-actions { padding-bottom: 0; }
-.post .sec.upcoming :is(h2, .byline) { color: #6e6e69; }
-.post .sec.upcoming .byline a { color: inherit; }
 
 /* The heading line with its status: "✓ Done [Edit]" */
 .post .sec-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .post .sec-title-row > h2, .post .sec-title-row > p { margin-right: auto; }
 .post .sec-title-row > h2 { margin-top: 0; }
 .post .sec-status { display: flex; align-items: center; gap: 10px; font: 13px var(--font); color: #5f5f5a; white-space: nowrap; }
-.post .sec-status.done .sec-status-text { color: var(--go); font-weight: 600; }
-.post .extras-label { font: 600 13px var(--font); color: #5f5f5a; text-transform: uppercase; letter-spacing: .04em; margin: 14px auto 6px 0; }
 
 /* "by @name": a small box sized to the name */
 .post .by-line { display: flex; align-items: center; gap: 2px; margin: 4px 0 14px; }
@@ -240,8 +208,6 @@ body[data-part] .editor-only { display: none !important; }
 .post .slot[contenteditable]:empty::before, .post .slot[contenteditable].is-empty::before {
   content: attr(data-placeholder); color: #6e6e69; font-weight: 400; font-style: normal; pointer-events: none;
 }
-.post .slot.has-default.is-empty::before { white-space: pre-line; }   /* keep the standard text's paragraphs */
-.post .slot.has-default.is-empty::after { content: "  (standard text: type to change it)"; font: italic 12px var(--font); color: #6b6b66; }
 .post .slot p:last-child { margin-bottom: 0; }
 
 .post .text-slot { margin: 2px 0; }
@@ -266,7 +232,7 @@ body[data-part] .editor-only { display: none !important; }
 }
 .post .slot-hint::before { content: "\26A0\FE0E  "; content: "\26A0\FE0E  " / ""; }
 
-/* The thread link under the title: "Link: community… [Change link]", or "[+ Add the link to the thread]" */
+/* The thread link under the title: "Link: community… [Change link]" */
 .post .chip-wrap { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; font: 13px var(--font); color: #5f5f5a; min-width: 0; }
 .post .chip-wrap + .fixed, .post .chip-wrap + p { margin-top: 14px; }
 .post .chip-wrap:empty { display: none; }
@@ -281,15 +247,14 @@ body[data-part] .editor-only { display: none !important; }
 .post .link-input { font: 14px var(--font); width: 100%; max-width: 560px; padding: 8px 10px; border: 1px solid #333; border-radius: 4px; }
 
 /* The step number beside each section, outside the post's left edge */
-.canvas-scroll { container-type: inline-size; }
 .post .sec > .sec-num {
-  position: absolute; left: -57px; top: 14px; width: 32px; height: 32px; border-radius: 50%;
+  position: absolute; left: -69px; top: 14px; width: 32px; height: 32px; border-radius: 50%;
   display: grid; place-items: center; font: 700 14px var(--font); line-height: 1;
   border: 2px solid var(--box); color: #5f5f5a; background: #f4f4f2;
 }
 .post .sec.todo > .sec-num { top: 18px; }
 .post .sec#sec-header > .sec-num { top: 0; }
-.post .sec.current > .sec-num { left: -59px; top: 20px; background: #fff; border-color: var(--go); color: var(--go); box-shadow: 0 0 0 4px var(--go-soft); }
+.post .sec.current > .sec-num { left: -71px; top: 20px; background: #fff; border-color: var(--go); color: var(--go); box-shadow: 0 0 0 4px var(--go-soft); }
 .post .sec > .sec-num.done { background: var(--go); border-color: var(--go); color: #fff; }
 .post .sec > .sec-num.skipped { border-style: dashed; }
 .post .sec > .sec-num.warn { background: var(--warn); border-color: var(--warn); color: #fff; }
@@ -298,6 +263,24 @@ body[data-part] .editor-only { display: none !important; }
   .post .sec > .sec-num { position: static; margin: 0 0 10px; }
   .post .sec.current > .sec-num { margin-top: -6px; }
 }
+
+/* Finished: one light green line with Edit (amber if something now needs a look) */
+.post .done-box { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; border: 1px solid #b9dcc3; background: #e7f3ea; border-radius: 6px; padding: 16px 20px; font-family: var(--font); }
+.post .done-text { flex: 1; min-width: 220px; }
+.post .done-box h2 { margin: 0; }
+.post .done-tick { color: var(--go); }
+.post .done-text p { margin: 2px 0 0; color: #2a5d3a; font-size: 15px; }
+.post .done-text a { color: inherit; font-weight: 400; }
+.post .needs-look .done-box { border-color: var(--warn-line); background: #fff4dc; }
+.post .needs-look .done-tick, .post .needs-look .done-text p { color: #7a4800; }
+.post .sec.done-card > .sec-num { top: 22px; }
+
+/* Started but not ticked off yet: a plain card with "Carry on" */
+.post .prog-card { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; border: 1px solid #cfcfca; border-radius: 6px; padding: 16px 20px; font-family: var(--font); }
+.post .prog-card .prog-text { flex: 1; min-width: 220px; }
+.post .prog-card h2 { margin: 0; }
+.post .prog-card p { margin: 2px 0 0; color: #5f5f5a; font-size: 15px; }
+.post .sec.progress > .sec-num { top: 22px; }
 
 /* Skipped this week: grey stripes, a dark badge and the title crossed out */
 .post .skip-card {
@@ -314,13 +297,19 @@ body[data-part] .editor-only { display: none !important; }
 /* The Header when everything's worked out: one line with a tick */
 .post .header-summary { display: flex; align-items: center; gap: 12px; font-family: var(--font); margin: 0 0 4px; }
 .post .header-summary p { margin: 0; flex: 1; }
-/* "Find new members' intro posts on the community ↗" */
-.post .find-link { font: 14px var(--font); margin: -6px 0 14px; }
+/* Standard text in the section you're on: a thin box with a label on its top edge */
+.post .std-box { position: relative; border: 1px solid #cfcfca; border-radius: 6px; background: #f3f3f1; padding: 18px 16px 12px; margin: 24px 0; }
+.post .std-label { position: absolute; top: -10px; left: 12px; background: #fff; border: 1px solid #cfcfca; border-radius: 4px; padding: 0 6px; font: 600 12px/1.6 var(--font); color: #5f5f5a; }
+.post .std-box .std-text > :last-child { margin-bottom: 0; }
+
+/* "Find their intro post: new members on the community ↗" above a new member's title box */
+.post .find-help { font: 13px/1.45 var(--font); color: #5f5f5a; margin: 0 0 4px; }
+.post .find-help a { font-weight: 600; }
 .post .slot-hint.dup .linkish { font-size: inherit; }
 
 /* Not started yet: a dashed "to do" card with one big green button */
 .post .todo-card { border: 2px dashed var(--box); border-radius: 6px; background: #fbfbf9; padding: 20px 24px; font-family: var(--font); }
-.post .sec.todo .todo-card h2 { margin: 0; color: #1d1d1b; }
+.post .todo-card h2 { margin: 0; }
 .post .todo-about { font-size: 15px; color: #5f5f5a; margin: 4px 0 0; }
 .post .todo-about a { color: #1d1d1b; font-weight: 400; }
 .post .todo-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 20px; }
@@ -347,10 +336,9 @@ body[data-part] .editor-only { display: none !important; }
 .post .paste-beside > .paste-btn { flex: none; margin-top: 4px; }
 .post .paste-btn[hidden] { display: none; }
 .post .by-line .paste-btn { margin-left: 10px; font-style: normal; }
-.post .chip-wrap .paste-btn { padding: 4px 12px; min-height: 30px; }
 .post .paste-help { font-size: 13px; color: #5f5f5a; }
 .post .item { position: relative; padding: 18px 0 10px; }
-.post .sec.current .item + .item, .post .sec.current .item + .add-btn { border-top: 1px solid #e3e3df; }
+.post .sec.current .item + .item { border-top: 1px solid #e3e3df; }
 .post .item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
 .post .item-name { font: 600 13px var(--font); color: #5f5f5a; text-transform: uppercase; letter-spacing: .04em; margin: 0; }
 .post .item-tools { display: flex; gap: 6px; }
@@ -361,11 +349,6 @@ body[data-part] .editor-only { display: none !important; }
 .post .item-btn:hover:not(:disabled), .post .status-btn:hover { border-color: #333; }
 .post .item-btn:disabled { opacity: .4; cursor: default; }
 .post .item-btn:last-child:hover:not(:disabled) { color: #b42318; border-color: #b42318; }   /* Remove */
-.post .add-btn {
-  display: inline-block; font: 600 14px var(--font); color: #1d1d1b; background: #fff;
-  border: 1px solid #b5b5b0; border-radius: 4px; padding: 8px 14px; margin: 10px 0 24px; cursor: pointer;
-}
-.post .add-btn:hover { border-color: #333; color: #000; }
 
 /* Each new member's avatar (picked at random), as it will appear in the post */
 .post .avatar-pick { margin: 4px 0 10px; }
@@ -374,7 +357,7 @@ body[data-part] .editor-only { display: none !important; }
 
 /* "+ Add a section here" */
 .post .add-section {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%; text-align: left; margin: 18px 0 6px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%; text-align: left; margin: 16px 0 24px;
   border: 1px dashed #bbb; background: none; border-radius: 4px; padding: 12px 14px; cursor: pointer;
   font: 600 13px var(--font); color: #444;
 }
@@ -383,7 +366,7 @@ body[data-part] .editor-only { display: none !important; }
 .post .add-section small { flex-basis: 100%; font: 400 12px var(--font); color: #6b6b66; padding-left: 20px; }
 
 /* "Mark … done & continue" */
-.post .sec-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 16px 0; font-family: var(--font); }
+.post .sec-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 24px 0 0; font-family: var(--font); }
 .post .sec-actions .problems { flex: 1 1 100%; }
 .post .sec-actions .problems .slot-hint { margin: 0; }
 
@@ -394,7 +377,7 @@ body[data-part] .editor-only { display: none !important; }
 .post .q-label { font-size: 15px; font-weight: 600; color: #1d1d1b; margin: 0 0 4px; }
 .post .q-help { font-size: 13px; line-height: 1.45; color: #5f5f5a; margin: 0 0 8px; max-width: 52ch; }
 .post .q-help.after { margin: 6px 0 0; }
-.post .q input {
+.post .q input, .post .extra input.link-box {
   font: 15px var(--font); color: #1d1d1b; background: #fff;
   border: 1px solid var(--box); border-radius: 4px; padding: 9px 11px; min-height: 42px;
 }
@@ -406,7 +389,7 @@ body[data-part] .editor-only { display: none !important; }
 .open-link[hidden], .link-row .btn[hidden] { display: none; }
 .link-row .btn { flex: none; }
 .post .q-help a, .phelp a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
-.post .q input:focus { outline: 2px solid #333; outline-offset: 1px; border-color: #333; }
+.post .q input:focus, .post .extra input.link-box:focus { outline: 2px solid #333; outline-offset: 1px; border-color: #333; }
 .post .q .slot-hint { margin: 8px 0 0; }
 
 /* ======================================================================
@@ -427,6 +410,12 @@ dialog {
 dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .dialog-body { padding: 20px 22px; display: flex; flex-direction: column; gap: 12px; }
 .dialog-body h3 { margin: 0; font-size: 18px; }
-.dialog-body ul { margin: 0; padding-left: 20px; line-height: 1.6; }
+/* Manage drafts */
+.manage-note { margin: 0; color: var(--muted); font-size: 13px; }
+.manage-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow: auto; }
+.manage-list li { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; }
+.manage-name { flex: 1; min-width: 160px; display: flex; flex-direction: column; font-weight: 600; }
+.manage-name small { font-weight: 400; color: var(--muted); }
+.btn.danger:hover { color: #b42318; border-color: #b42318; filter: none; }
 .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .part-error { color: var(--warn); background: var(--warn-soft); border-left: 3px solid var(--warn-line); border-radius: 0 4px 4px 0; padding: 4px 9px; font-size: 13px; }

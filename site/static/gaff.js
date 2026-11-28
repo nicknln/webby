@@ -259,7 +259,9 @@
     const renderCustom = (s, i) => {
       const blocks = sectionHeader(need(s, 'title', `sections[${i}]`), s.author);
       if (s.image) blocks.push(image(s.image));
+      if (pyStrip(str(s.headline || ''))) blocks.push(bold(pyStrip(str(s.headline))));
       if (s.body) blocks.push(paragraphs(s.body));
+      if (pyStrip(str(s.source || ''))) blocks.push(`Source: ${pyStrip(str(s.source))}`);
       return blocks;
     };
 
@@ -342,6 +344,11 @@
     if (has(hello, 'members')) {
       hello.members = hello.members.filter(m => Object.keys(m).some(k => k !== 'avatar'));
       if (!hello.members.length) delete hello.members;
+    }
+    // An extra section (Tech News) with only its title and author has nothing to post yet.
+    if (has(ed, 'sections')) {
+      ed.sections = ed.sections.filter(s => Object.keys(s).some(k => k !== 'title' && k !== 'author'));
+      if (!ed.sections.length) delete ed.sections;
     }
     return ed;
   }
